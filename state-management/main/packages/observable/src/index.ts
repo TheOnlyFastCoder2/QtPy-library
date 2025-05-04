@@ -8,6 +8,14 @@ import {
 } from "./types";
 import { getByPath, isUpdateFn, setByPath, shallowEqual } from "./utils";
 
+/**
+ * Создает реактивное хранилище с подписками, обновлением по путям, поддержкой middleware, дебаунсом и оптимистичными обновлениями.
+ *
+ * @template T Тип хранимого состояния
+ * @param {T} initialValue Начальное состояние
+ * @param {Middleware<T>[]} [middlewares=[]] Массив middleware-функций
+ * @returns {ObservableStore<T>} Реактивное хранилище
+ */
 export function createObservableStore<T extends object>(
   initialValue: T,
   middlewares: Middleware<T>[] = []
@@ -18,10 +26,22 @@ export function createObservableStore<T extends object>(
     { timeout: number | undefined; abortController?: AbortController }
   >();
   const subscribers = new Set<(val: T) => void>();
+  const pathSubscribers = new Map<string, Set<(val: any) => void>>();
   let isBatching = false;
   let pendingUpdates: Array<{ path: Paths<T>; value: any }> = [];
   const get = <P extends Paths<T>>(path: P) => {
     return getByPath(currentValue, path);
+  };
+
+  const notifyPathSubscribers = <P extends Paths<T>>(
+    path: P,
+    value: ExtractPathType<T, P>
+  ) => {
+    const pathKey = path.toString();
+    const subscribers = pathSubscribers.get(pathKey);
+    if (subscribers) {
+      subscribers.forEach((cb) => cb(value));
+    }
   };
 
   const coreUpdate = <P extends Paths<T>>(
@@ -40,10 +60,11 @@ export function createObservableStore<T extends object>(
       setByPath(newValue, path, value);
       currentValue = newValue;
       subscribers.forEach((cb) => cb(currentValue));
+      notifyPathSubscribers(path, value);
     }
   };
 
-  const store = {
+  const store: ObservableStore<T> = {
     get current() {
       return currentValue;
     },
@@ -237,6 +258,32 @@ export function createObservableStore<T extends object>(
       return () => subscribers.delete(cb);
     },
 
+    subscribeToPath<P extends Paths<T>>(
+      path: P,
+      cb: (val: ExtractPathType<T, P>) => void,
+      options: { immediate?: boolean } = { immediate: false }
+    ) {
+      const pathKey = path.toString();
+
+      if (!pathSubscribers.has(pathKey)) {
+        pathSubscribers.set(pathKey, new Set());
+      }
+
+      const subscribers = pathSubscribers.get(pathKey)!;
+      subscribers.add(cb);
+
+      if (options.immediate) {
+        cb(get(path));
+      }
+
+      return () => {
+        subscribers.delete(cb);
+        if (subscribers.size === 0) {
+          pathSubscribers.delete(pathKey);
+        }
+      };
+    },
+
     clearDebounceTimers() {
       debounceTimers.forEach(({ timeout, abortController }) => {
         clearTimeout(timeout);
@@ -249,6 +296,7 @@ export function createObservableStore<T extends object>(
     destroy() {
       this.clearDebounceTimers();
       subscribers.clear();
+      pathSubscribers.clear();
       return this;
     },
   };

@@ -14,16 +14,75 @@ import {
   ErrorHandler,
   ErrorHandlerOptions,
   ErrorContext,
+  QueryStoreConfig,
 } from "./types";
 
+const DEFAULT_CONFIG: QueryStoreConfig = {
+  cache: {
+    defaultTTL: 5 * 60 * 1000, // 5 минут
+    maxSize: 100,
+    cleanupInterval: 60 * 1000, // 1 минута
+  },
+  polling: {
+    defaultInterval: 30 * 1000, // 30 секунд
+    retry: {
+      defaultDelay: 1000, // 1 секунда
+      maxExponentialBackoff: 30 * 1000, // 30 секунд макс. задержка
+    },
+  },
+  fetch: {
+    defaultRetryCount: 3,
+    concurrency: 5,
+  },
+  dependencies: {
+    checkInterval: 100, // Интервал проверки зависимостей
+  },
+};
+
+/**
+ * Создаёт расширенный observable-хранилище с поддержкой:
+ * - автоматического кэширования,
+ * - управления polling-запросами,
+ * - отмены запросов,
+ * - инвалидирования по ключам,
+ * - обработки ошибок и зависимостей.
+ *
+ * @template T Тип состояния хранилища
+ * @param initial Начальное состояние
+ * @param middlewares Массив middleware для хранилища
+ * @param userConfig Пользовательская конфигурация (объединяется с DEFAULT_CONFIG)
+ * @returns Расширенное хранилище с методами работы с запросами, polling'ом, инвалидированием и ошибками
+ */
 export function createQueryStore<T extends object>(
   initial: T,
   middlewares: Middleware<T>[] = [],
-  { DEFAULT_CACHE_TTL, MAX_CACHE_SIZE } = {
-    DEFAULT_CACHE_TTL: 5 * 60 * 1000,
-    MAX_CACHE_SIZE: 100,
-  }
-): StoreWithInvalidation<T> {
+  userConfig: Partial<QueryStoreConfig> = {}
+): StoreWithInvalidation<T> & { config: QueryStoreConfig } {
+  const config: QueryStoreConfig = {
+    ...DEFAULT_CONFIG,
+    ...userConfig,
+    cache: {
+      ...DEFAULT_CONFIG.cache,
+      ...userConfig.cache,
+    },
+    polling: {
+      ...DEFAULT_CONFIG.polling,
+      ...userConfig.polling,
+      retry: {
+        ...DEFAULT_CONFIG.polling.retry,
+        ...userConfig.polling?.retry,
+      },
+    },
+    fetch: {
+      ...DEFAULT_CONFIG.fetch,
+      ...userConfig.fetch,
+    },
+    dependencies: {
+      ...DEFAULT_CONFIG.dependencies,
+      ...userConfig.dependencies,
+    },
+  };
+
   const baseStore = createObservableStore(initial, middlewares);
   const invalidationSubs = new Map<
     CacheKey,
@@ -32,6 +91,7 @@ export function createQueryStore<T extends object>(
   const pollingIntervals = new Map<CacheKey, number | undefined>();
   const dependencySubscriptions = new Map<CacheKey, () => void>();
   const queryCache = new Map<CacheKey, QueryCacheItem>();
+  const abortControllers = new Map<CacheKey, AbortController>();
 
   const globalErrorHandlers = new Set<{
     handler: ErrorHandler<T>;
@@ -75,29 +135,80 @@ export function createQueryStore<T extends object>(
       }
     }
   });
-
+  /**
+   * Принудительно очищает устаревшие элементы кэша.
+   */
   const cleanupCache = () => {
     const now = Date.now();
     queryCache.forEach((item, key) => {
-      const expiresAt = item.createdAt + (item.ttl ?? DEFAULT_CACHE_TTL);
+      const expiresAt = item.createdAt + (item.ttl ?? config.cache.defaultTTL);
       if (expiresAt < now) {
         queryCache.delete(key);
       }
     });
-    if (queryCache.size > MAX_CACHE_SIZE) {
+    if (queryCache.size > config.cache.maxSize) {
       const entries = Array.from(queryCache.entries());
       entries.sort((a, b) => a[1].createdAt - b[1].createdAt); // Сортируем по времени создания
 
       // Удаляем самые старые записи
-      for (let i = 0; i < entries.length - MAX_CACHE_SIZE / 2; i++) {
+      for (let i = 0; i < entries.length - config.cache.maxSize / 2; i++) {
         queryCache.delete(entries[i][0]);
       }
     }
   };
 
-  const cleanupInterval = setInterval(cleanupCache, 60 * 1000);
+  const cleanupInterval = setInterval(
+    cleanupCache,
+    config.cache.cleanupInterval
+  );
   const isErrorType = <E>(error: unknown): error is E => {
     return error instanceof Error;
+  };
+
+  const combineSignals = (...signals: AbortSignal[]): AbortSignal => {
+    const controller = new AbortController();
+    signals.forEach((signal) => {
+      if (signal.aborted) controller.abort();
+      signal.addEventListener("abort", () => controller.abort());
+    });
+    return controller.signal;
+  };
+
+  const waitForDeps = (
+    paths: Paths<T>[],
+    signal: AbortSignal
+  ): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted)
+        return reject(new DOMException("Aborted", "AbortError"));
+
+      const checkReady = () =>
+        paths.every((p) => {
+          const val = baseStore.get(p);
+          return val !== undefined && val !== null;
+        });
+
+      if (checkReady()) return resolve();
+
+      const unsubscribes: (() => void)[] = [];
+      const cleanup = () => unsubscribes.forEach((unsub) => unsub());
+
+      // Подписка на КОНКРЕТНЫЕ пути через subscribeToPath
+      paths.forEach((path) => {
+        const unsub = baseStore.subscribeToPath(path, () => {
+          if (checkReady()) {
+            cleanup();
+            resolve();
+          }
+        });
+        unsubscribes.push(unsub);
+      });
+
+      signal.addEventListener("abort", () => {
+        cleanup();
+        reject(new DOMException("Aborted", "AbortError"));
+      });
+    });
   };
 
   const store: StoreWithInvalidation<T> = {
@@ -105,8 +216,8 @@ export function createQueryStore<T extends object>(
 
     addErrorHandler<E = Error>(
       handler: ErrorHandler<T, E>,
-      options: ErrorHandlerOptions = {}
-    ) {
+      options?: ErrorHandlerOptions
+    ): () => void {
       const wrapper: ErrorHandler<T, unknown> = (error, context) => {
         if (isErrorType<E>(error)) {
           // type guard для проверки типа
@@ -125,6 +236,7 @@ export function createQueryStore<T extends object>(
         }
       }
     },
+
     _handleError<E = unknown>(
       error: E,
       context: Omit<ErrorContext<T, E>, "type">
@@ -237,120 +349,65 @@ export function createQueryStore<T extends object>(
     },
 
     async fetchDependent<P extends Paths<T>>(
-      key: CacheKey,
-      fetchFn: () => Promise<ExtractPathType<T, P>>,
+      key: string,
+      fetchFn: (signal?: AbortSignal) => Promise<ExtractPathType<T, P>>,
       options: {
         dependsOn?: Paths<T>[];
-        tags?: CacheKey[];
-        targetPath?: P;
-        autoInvalidate?: boolean;
-        ttl?: number;
+        signal?: AbortSignal;
       } = {}
     ): Promise<ExtractPathType<T, P>> {
-      // 1. Отмена предыдущих подписок и проверка кеша
-      dependencySubscriptions.get(key)?.();
-      dependencySubscriptions.delete(key);
+      // Отмена предыдущего запроса с этим ключом
+      if (abortControllers.has(key)) {
+        abortControllers.get(key)?.abort("New request started");
+      }
 
-      const cached = queryCache.get(key);
-      if (cached) {
-        const expiresAt = cached.createdAt + (cached.ttl ?? DEFAULT_CACHE_TTL);
-        if (expiresAt > Date.now()) {
+      const controller = new AbortController();
+      abortControllers.set(key, controller);
+
+      const combinedSignal = options.signal
+        ? combineSignals(controller.signal, options.signal)
+        : controller.signal;
+
+      try {
+        // Проверка кэша
+        const cached = queryCache.get(key);
+        if (cached && Date.now() - cached.createdAt < 5 * 60 * 1000) {
           return cached.data;
         }
-      }
 
-      // 2. Обработка зависимостей
-      const areDependenciesReady = () =>
-        (options.dependsOn || []).every((path) => {
-          const value = baseStore.get(path);
-          return value !== undefined && value !== null;
-        });
-
-      if (options.dependsOn && !areDependenciesReady()) {
-        await new Promise<void>((resolve, reject) => {
-          const unsubscribe = baseStore.subscribe(() => {
-            if (areDependenciesReady()) {
-              cleanupSubscription();
-              resolve();
-            }
-          });
-
-          const cleanupSubscription = () => {
-            unsubscribe();
-            dependencySubscriptions.delete(key);
-          };
-
-          // Таймаут для зависимостей
-          const timeoutId = setTimeout(() => {
-            cleanupSubscription();
-            reject(new Error(`Dependencies timeout for key: ${key}`));
-          }, 30_000); // 30 секунд таймаут
-
-          dependencySubscriptions.set(key, () => {
-            clearTimeout(timeoutId);
-            cleanupSubscription();
-          });
-        });
-      }
-
-      // 3. Регистрация инвалидации (с WeakRef)
-      const registerInvalidation = () => {
-        if (!options.tags?.length) return;
-
-        const invalidationCallback = async () => {
-          try {
-            const freshData = await fetchFn();
-            if (options.targetPath) {
-              baseStore.update(options.targetPath, freshData);
-            }
-            queryCache.set(key, {
-              data: freshData,
-              tags: options.tags,
-              createdAt: Date.now(),
-              ttl: options.ttl,
-            });
-          } catch (error) {
-            console.error(`Invalidation failed for key ${key}:`, error);
-          }
-        };
-
-        const ref = new WeakRef(invalidationCallback);
-        options.tags.forEach((tag) => {
-          if (!invalidationSubs.has(tag)) {
-            invalidationSubs.set(tag, new Set());
-          }
-          invalidationSubs.get(tag)!.add(ref);
-          registry.register(invalidationCallback, tag);
-        });
-      };
-
-      // 4. Выполнение запроса
-      try {
-        const data = await fetchFn();
-
-        queryCache.set(key, {
-          data,
-          tags: options.tags,
-          createdAt: Date.now(),
-          ttl: options.ttl,
-        });
-
-        if (options.targetPath) {
-          baseStore.update(options.targetPath, data);
+        // Ожидание зависимостей через subscribeToPath
+        if (options.dependsOn) {
+          await waitForDeps(options.dependsOn, combinedSignal);
         }
 
-        if (options.autoInvalidate !== false) {
-          registerInvalidation();
-        }
-
+        // Выполнение запроса
+        const data = await fetchFn(combinedSignal);
+        queryCache.set(key, { data, createdAt: Date.now() });
         return data;
       } catch (error) {
-        queryCache.delete(key);
-        if (options.tags) {
-          options.tags.forEach((tag) => invalidateByTag(tag));
+        if (error instanceof Error && error.name !== "AbortError") {
+          queryCache.delete(key);
         }
         throw error;
+      } finally {
+        abortControllers.delete(key);
       }
+    },
+
+    cancelFetch(key: CacheKey) {
+      abortControllers.get(key)?.abort("Manually canceled");
+      abortControllers.delete(key);
+    },
+
+    cancelAllFetches() {
+      abortControllers.forEach((controller) =>
+        controller.abort("All fetches canceled")
+      );
+      abortControllers.clear();
+    },
+
+    clearCache() {
+      queryCache.clear();
     },
 
     async batchQueries<Q extends { key: string; query: () => Promise<any> }>(
@@ -363,7 +420,7 @@ export function createQueryStore<T extends object>(
       if (queries.length === 0) return {};
 
       // Ограничение concurrency (например, 3 запроса одновременно)
-      const concurrency = options.concurrency || Infinity;
+      const concurrency = options.concurrency || config.fetch.concurrency;
       const results: Record<string, any> = {};
       let completed = 0;
 
@@ -394,26 +451,28 @@ export function createQueryStore<T extends object>(
 
       return results;
     },
+
     poll<P extends Paths<T>>(
       path: P,
       fetchFn: (
         current: ExtractPathType<T, P>
       ) => Promise<ExtractPathType<T, P>>,
       options: {
-        interval: number;
+        interval?: number;
         cacheKey?: CacheKey;
-        retryCount?: number; // Макс. количество попыток
-        retryDelay?: number; // Задержка между попытками (ms)
-        onError?: (error: unknown) => void; // Кастомный обработчик ошибок
-        exponentialBackoff?: boolean; // Экспоненциальный рост задержки
-      } = { interval: 30_000 }
+        retryCount?: number;
+        retryDelay?: number;
+        onError?: (error: unknown) => void;
+        exponentialBackoff?: boolean;
+      }
     ) {
       const cacheKey = options.cacheKey || path.toString();
       this.stopPolling(cacheKey);
 
       // Состояние для управления повторными попытками
       let currentRetry = 0;
-      let currentDelay = options.retryDelay || 1000;
+      let currentDelay =
+        options.retryDelay || config.polling.retry.defaultDelay;
       let active = true;
 
       const executeFetch = async () => {
@@ -482,9 +541,11 @@ export function createQueryStore<T extends object>(
         pollingIntervals.delete(cacheKey);
       }
     },
+
     stopAllPolling() {
       pollingIntervals.forEach((_, key) => this.stopPolling(key));
     },
+
     destroy() {
       clearInterval(cleanupInterval);
       pollingIntervals.forEach(clearInterval);
@@ -501,5 +562,8 @@ export function createQueryStore<T extends object>(
     },
   };
 
-  return store;
+  return {
+    ...store,
+    config,
+  };
 }

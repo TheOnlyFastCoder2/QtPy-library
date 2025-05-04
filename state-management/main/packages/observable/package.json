@@ -1,7 +1,10 @@
 {
   "name": "@qtpy/state-management-observable",
-  "version": "0.0.1",
+  "version": "0.1.3",
   "type": "module",
+  "author": "QtPy",
+  "license": "MIT",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -17,6 +20,16 @@
   },
   "files": [
     "dist"
+  ],
+  "keywords": [
+    "state-management",
+    "observable",
+    "reactivity",
+    "data-binding",
+    "javascript",
+    "typescript",
+    "library",
+    "framework"
   ],
   "scripts": {
     "build": "vite build && tsc --emitDeclarationOnly --outDir dist",
