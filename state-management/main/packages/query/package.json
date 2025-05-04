@@ -47,6 +47,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@qtpy/state-management-observable": "^0.1.2"
+    "@qtpy/state-management-observable": "^0.1.3"
   }
 }
