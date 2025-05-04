@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "declarationDir": "dist",
+    "emitDeclarationOnly": true,
+    "esModuleInterop": true,
+    "baseUrl": ".",
+    "module": "ESNext",
+    "target": "ESNext"
+  },
+  "include": ["src"]
+}
