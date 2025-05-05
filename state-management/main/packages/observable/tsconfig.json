@@ -2,6 +2,7 @@
   "compilerOptions": {
     "declaration": true,
     "declarationDir": "dist",
+    "outDir": "dist",
     "emitDeclarationOnly": true,
     "esModuleInterop": true,
     "baseUrl": ".",

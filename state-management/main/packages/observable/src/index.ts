@@ -1,4 +1,5 @@
 import {
+  CacheKey,
   ExtractPathType,
   Middleware,
   ObservableStore,
@@ -27,6 +28,7 @@ export function createObservableStore<T extends object>(
   >();
   const subscribers = new Set<(val: T) => void>();
   const pathSubscribers = new Map<string, Set<(val: any) => void>>();
+  const cachedSubscribers = new Map<string, Set<(val: T) => void>>();
   let isBatching = false;
   let pendingUpdates: Array<{ path: Paths<T>; value: any }> = [];
   const get = <P extends Paths<T>>(path: P) => {
@@ -62,6 +64,54 @@ export function createObservableStore<T extends object>(
       subscribers.forEach((cb) => cb(currentValue));
       notifyPathSubscribers(path, value);
     }
+  };
+  const resolveCacheKey = <T extends object>(
+    key: CacheKey<T>,
+    state: T
+  ): string => {
+    if (typeof key === "function") {
+      return key(state);
+    }
+
+    if (Array.isArray(key)) {
+      return key.join("|");
+    }
+
+    // Пробуем обработать как путь
+    try {
+      const value = getByPath(state, key);
+      return JSON.stringify(value);
+    } catch {
+      // Если не путь - используем как строку
+      return key;
+    }
+  };
+  const createUniversalCachedSubscriber = <Cb extends Function>(
+    cb: Cb,
+    cacheKeys: CacheKey<T>[]
+  ): Cb => {
+    let lastKey: string | null = null;
+    // Регистрируем подписчика для всех его ключей кэша
+    cacheKeys.forEach((key) => {
+      const resolvedKey = resolveCacheKey(key, currentValue);
+      if (!cachedSubscribers.has(resolvedKey)) {
+        cachedSubscribers.set(resolvedKey, new Set());
+      }
+
+      cachedSubscribers.get(resolvedKey)!.add(cb as any as (val: T) => void);
+    });
+
+    return ((...args: any[]) => {
+      const state = args[0];
+      const currentKey = cacheKeys
+        .map((key) => resolveCacheKey(key, state))
+        .join("||");
+
+      if (currentKey !== lastKey) {
+        lastKey = currentKey;
+        return cb(...args);
+      }
+    }) as unknown as Cb;
   };
 
   const store: ObservableStore<T> = {
@@ -253,31 +303,71 @@ export function createObservableStore<T extends object>(
       }
     },
 
-    subscribe(cb: (val: T) => void) {
-      subscribers.add(cb);
-      return () => subscribers.delete(cb);
-    },
+    subscribe(cb: (val: T) => void, cacheKeys: CacheKey<T>[] = []) {
+      const cachedSubscriber = cacheKeys.length
+        ? createUniversalCachedSubscriber(cb, cacheKeys)
+        : cb;
 
+      subscribers.add(cachedSubscriber);
+      return () => {
+        subscribers.delete(cachedSubscriber);
+        // Очищаем из cachedSubscribers
+        cacheKeys.forEach((key) => {
+          const resolvedKey = resolveCacheKey(key, currentValue);
+          cachedSubscribers.get(resolvedKey)?.delete(cachedSubscriber);
+        });
+      };
+    },
+    invalidateCache(keys: CacheKey<T> | CacheKey<T>[]) {
+      // Нормализуем в массив (если передан одиночный ключ)
+      const keysToInvalidate = Array.isArray(keys)
+        ? // Если это массив ключей (не массив-ключ)
+          keys.every((k) => !Array.isArray(k) || typeof k === "function")
+          ? keys
+          : [keys]
+        : [keys];
+
+      // Приводим к плоскому массиву ключей
+      const flatKeys = keysToInvalidate.flatMap((k) =>
+        Array.isArray(k) && k.every((i) => typeof i === "string") ? [k] : [k]
+      );
+
+      flatKeys.forEach((key) => {
+        const resolvedKey = resolveCacheKey(key, currentValue);
+        const subscribersToNotify = cachedSubscribers.get(resolvedKey);
+
+        if (subscribersToNotify) {
+          // Создаем копию для безопасного итерирования
+          const subscribersCopy = new Set(subscribersToNotify);
+          subscribersCopy.forEach((cb) => cb(currentValue));
+        }
+      });
+    },
     subscribeToPath<P extends Paths<T>>(
       path: P,
       cb: (val: ExtractPathType<T, P>) => void,
-      options: { immediate?: boolean } = { immediate: false }
+      options: { immediate?: boolean; cacheKeys?: CacheKey<T>[] } = {
+        immediate: false,
+      }
     ) {
       const pathKey = path.toString();
+      const cachedSubscriber = options.cacheKeys?.length
+        ? createUniversalCachedSubscriber(cb, options.cacheKeys)
+        : cb;
 
       if (!pathSubscribers.has(pathKey)) {
         pathSubscribers.set(pathKey, new Set());
       }
 
       const subscribers = pathSubscribers.get(pathKey)!;
-      subscribers.add(cb);
+      subscribers.add(cachedSubscriber);
 
       if (options.immediate) {
-        cb(get(path));
+        cachedSubscriber(get(path));
       }
 
       return () => {
-        subscribers.delete(cb);
+        subscribers.delete(cachedSubscriber);
         if (subscribers.size === 0) {
           pathSubscribers.delete(pathKey);
         }

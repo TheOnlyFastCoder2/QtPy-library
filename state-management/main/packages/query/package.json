@@ -1,7 +1,7 @@
 {
   "name": "@qtpy/state-management-query",
   "type": "module",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
@@ -47,6 +47,6 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@qtpy/state-management-observable": "^0.1.3"
+    "@qtpy/state-management-observable": "^0.1.9"
   }
 }

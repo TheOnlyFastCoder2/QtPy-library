@@ -4,12 +4,14 @@ import { resolve } from "path";
 export default defineConfig({
   build: {
     lib: {
-      entry: resolve(__dirname, "src/index.ts"),
+      entry: {
+        index: resolve(__dirname, "src/index.ts"),
+        utils: resolve(__dirname, "src/utils.ts"),
+      },
       formats: ["es", "cjs"], // Важно: билдим оба формата
-      fileName: (format) => {
-        if (format === "es") return "index.mjs";
-        if (format === "cjs") return "index.cjs";
-        return `index.${format}.js`;
+      fileName: (format, entryName) => {
+        const ext = format === "es" ? "mjs" : "cjs";
+        return `${entryName}.${ext}`;
       },
     },
   },

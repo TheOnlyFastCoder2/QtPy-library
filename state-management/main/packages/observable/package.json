@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/state-management-observable",
-  "version": "0.1.4",
+  "version": "0.2.1",
   "type": "module",
   "author": "QtPy",
   "license": "MIT",
@@ -16,6 +16,11 @@
     },
     "./types": {
       "types": "./dist/types.d.ts"
+    },
+    "./utils": {
+      "import": "./dist/utils.mjs",
+      "require": "./dist/utils.cjs",
+      "types": "./dist/utils.d.ts"
     }
   },
   "files": [
