@@ -24,52 +24,88 @@ export type UpdateFn<T, P extends Paths<T>> = (
  */
 type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
+type MaxDepth = 5;
 /**
- * Генерация строковых путей к значениям в массиве.
- * Поддерживаются как массивы примитивов, так и вложенные массивы/объекты.
+ * Генерация строковых путей к значениям в массиве с поддержкой кортежей
  */
-type ArrayPaths<T extends Array<any>> = T extends Array<infer U>
-  ? U extends Primitive
-    ? `${number}` // Индекс примитивного массива
-    : U extends Array<any>
-    ? `${number}` | `${number}.${ArrayPaths<U>}` // Массив массивов
-    : `${number}` | `${number}.${Paths<U>}` // Массив объектов
+type LiteralIndices =
+  | "0"
+  | "1"
+  | "2"
+  | "3"
+  | "4"
+  | "5"
+  | "6"
+  | "7"
+  | "8"
+  | "9"
+  | "10";
+/**
+ * Утилита для извлечения типа элемента массива/кортежа
+ */
+type ArrayPaths<T, Depth extends number> = Depth extends 0
+  ? never
+  : T extends readonly (infer U)[]
+  ? LiteralIndices | `${LiteralIndices}.${Paths<U, Decrement<Depth>>}`
   : never;
 
 /**
- * Рекурсивная генерация строковых путей к полям объекта.
- * Например: "user.name", "posts.0.title"
+ * Рекурсивная генерация строковых путей к полям объекта с улучшенной поддержкой массивов
  */
-export type Paths<T> = T extends Primitive
-  ? never
-  : T extends Array<any>
-  ? ArrayPaths<T>
-  : {
-      [K in keyof T & string]: T[K] extends Primitive
-        ? K
-        : T[K] extends Array<any>
-        ? K | `${K}.${ArrayPaths<T[K]>}`
-        : K | `${K}.${Paths<T[K]>}`;
-    }[keyof T & string];
+type ObjectPaths<T, Depth extends number> = {
+  [K in keyof T & string]: T[K] extends Primitive
+    ? K
+    : T[K] extends readonly any[]
+    ? K | `${K}.${ArrayPaths<T[K], Decrement<Depth>>}`
+    : K | `${K}.${Paths<T[K], Decrement<Depth>>}`;
+}[keyof T & string];
 
+export type Paths<T, Depth extends number = MaxDepth> = Depth extends 0
+  ? never
+  : T extends Primitive
+  ? never
+  : T extends readonly any[]
+  ? ArrayPaths<T, Depth>
+  : ObjectPaths<T, Depth>;
 /**
- * Получение типа значения по строковому пути.
- * Поддерживает вложенные поля через ".".
- *
- * @template T Тип состояния
- * @template P Путь (например: "user.name")
+ * Улучшенное извлечение типа по пути с поддержкой кортежей
  */
-export type ExtractPathType<T, P extends string> = P extends keyof T
+export type ExtractPathType<
+  T,
+  P extends string,
+  Depth extends number = MaxDepth
+> = Depth extends 0
+  ? never
+  : P extends keyof T
   ? T[P]
   : P extends `${infer K}.${infer Rest}`
   ? K extends keyof T
     ? T[K] extends infer Next
       ? Next extends object
-        ? ExtractPathType<Next, Rest>
+        ? ExtractPathType<Next, Rest, Decrement<Depth>>
+        : never
+      : never
+    : K extends `${infer N extends number}`
+    ? T extends readonly any[]
+      ? N extends keyof T
+        ? ExtractPathType<T[N], Rest, Decrement<Depth>>
         : never
       : never
     : never
   : never;
+//prettier-ignore
+type Decrement<N extends number> = 
+N extends 10 ? 9 :
+N extends 9 ? 8 :
+N extends 8 ? 7 :
+N extends 7 ? 6 :
+N extends 6 ? 5 :
+N extends 5 ? 4 :
+N extends 4 ? 3 :
+N extends 3 ? 2 :
+N extends 2 ? 1 :
+N extends 1 ? 0 :
+never;
 
 /**
  * Middleware — функция-перехватчик, оборачивающая базовую функцию обновления.
