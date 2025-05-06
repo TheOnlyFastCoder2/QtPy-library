@@ -1,0 +1,55 @@
+{
+  "name": "@qtpy/state-management-react",
+  "version": "0.0.1",
+  "author": "QtPy",
+  "license": "MIT",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false,
+  "private": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "react",
+    "state-management",
+    "hooks",
+    "observable",
+    "reactivity"
+  ],
+  "dependencies": {
+    "@qtpy/state-management-observable": "^0.2.6",
+    "react": ">=16.8",
+    "react-dom": ">=16.8"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "prepublishOnly": "npm run build",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext ts,tsx --fix"
+  },
+  "devDependencies": {
+    "@types/react": ">=16.8",
+    "@types/react-dom": ">=16.8",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.22.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.1",
+    "vite-plugin-dts": "^3.9.0"
+  }
+}
