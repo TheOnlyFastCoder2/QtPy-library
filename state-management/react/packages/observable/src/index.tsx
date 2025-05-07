@@ -10,6 +10,7 @@ import {
 import { ReactStore, UseStoreReturnType } from "./types";
 import { useState, useRef, useEffect } from "react";
 
+export { createObservableStore };
 export function createReactStore<T extends object>(
   initialState: T
 ): ReactStore<T> {

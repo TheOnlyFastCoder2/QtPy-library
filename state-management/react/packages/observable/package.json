@@ -1,13 +1,12 @@
 {
   "name": "@qtpy/state-management-react",
-  "version": "0.0.1",
+  "version": "0.0.5",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
-  "sideEffects": false,
   "private": false,
   "exports": {
     ".": {
@@ -30,7 +29,7 @@
     "reactivity"
   ],
   "dependencies": {
-    "@qtpy/state-management-observable": "^0.2.6",
+    "@qtpy/state-management-observable": "^0.2.7",
     "react": ">=16.8",
     "react-dom": ">=16.8"
   },

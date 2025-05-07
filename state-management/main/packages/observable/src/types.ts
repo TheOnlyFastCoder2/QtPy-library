@@ -24,29 +24,34 @@ export type UpdateFn<T, P extends Paths<T>> = (
  */
 type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
-type MaxDepth = 5;
+type MaxDepth = 7;
 /**
  * Генерация строковых путей к значениям в массиве с поддержкой кортежей
  */
-type LiteralIndices =
-  | "0"
-  | "1"
-  | "2"
-  | "3"
-  | "4"
-  | "5"
-  | "6"
-  | "7"
-  | "8"
-  | "9"
-  | "10";
+type Range<
+  N extends number,
+  Acc extends number[] = []
+> = Acc["length"] extends N ? Acc[number] : Range<N, [...Acc, Acc["length"]]>;
+type NumberToString<N extends number> = `${N}`;
+type LiteralIndices<N extends number = 10> = NumberToString<Range<N>>;
 /**
  * Утилита для извлечения типа элемента массива/кортежа
  */
+
+type IsTuple<T> = T extends readonly any[]
+  ? number extends T["length"]
+    ? false
+    : true
+  : false;
+
 type ArrayPaths<T, Depth extends number> = Depth extends 0
   ? never
   : T extends readonly (infer U)[]
-  ? LiteralIndices | `${LiteralIndices}.${Paths<U, Decrement<Depth>>}`
+  ? IsTuple<T> extends true
+    ?
+        | LiteralIndices<T["length"]>
+        | `${LiteralIndices<T["length"]>}.${Paths<U, Decrement<Depth>>}`
+    : "0" | `0.${Paths<U, Decrement<Depth>>}`
   : never;
 
 /**
