@@ -4,8 +4,10 @@
  * - Функцией-генератором ключа
  * - Массивом строк для групповой инвалидации
  */
-export type CacheKey<T> = Paths<T> | ((state: T) => string) | string[];
-
+export type CacheKey<T, D extends number = 5> =
+  | string[]
+  | ((state: T) => string)
+  | Paths<T, D>;
 /**
  * Функция обновления: принимает текущее значение по пути и возвращает новое.
  * Используется для функционального обновления значения в хранилище.
@@ -15,16 +17,17 @@ export type CacheKey<T> = Paths<T> | ((state: T) => string) | string[];
  * @param currentValue Текущее значение по указанному пути
  * @returns Новое значение, которое будет установлено
  */
-export type UpdateFn<T, P extends Paths<T>> = (
-  currentValue: ExtractPathType<T, P>
-) => ExtractPathType<T, P>;
 
+export type UpdateFn<T, P extends Paths<T, D>, D extends number = 5> = (
+  prev: ExtractPathType<T, P, D>
+) => ExtractPathType<T, P, D>;
 /**
  * Примитивные типы, не участвующие в рекурсивной генерации путей.
  */
 type Primitive = string | number | boolean | bigint | symbol | null | undefined;
 
 type MaxDepth = 7;
+
 /**
  * Генерация строковых путей к значениям в массиве с поддержкой кортежей
  */
@@ -33,31 +36,31 @@ type Range<
   Acc extends number[] = []
 > = Acc["length"] extends N ? Acc[number] : Range<N, [...Acc, Acc["length"]]>;
 type NumberToString<N extends number> = `${N}`;
-type LiteralIndices<N extends number = 10> = NumberToString<Range<N>>;
+export type LiteralIndices<N extends number = 10> = NumberToString<Range<N>>;
 /**
  * Утилита для извлечения типа элемента массива/кортежа
  */
 
-type IsTuple<T> = T extends readonly any[]
+export type IsTuple<T> = T extends readonly any[]
   ? number extends T["length"]
     ? false
     : true
   : false;
 
-type ArrayPaths<T, Depth extends number> = Depth extends 0
+export type ArrayPaths<T, Depth extends number> = Depth extends 0
   ? never
   : T extends readonly (infer U)[]
   ? IsTuple<T> extends true
     ?
         | LiteralIndices<T["length"]>
-        | `${LiteralIndices<T["length"]>}.${Paths<U, Decrement<Depth>>}`
+        | `${LiteralIndices<T["length"]>}.${Paths<U, Depth>}`
     : "0" | `0.${Paths<U, Decrement<Depth>>}`
   : never;
 
 /**
  * Рекурсивная генерация строковых путей к полям объекта с улучшенной поддержкой массивов
  */
-type ObjectPaths<T, Depth extends number> = {
+export type ObjectPaths<T, Depth extends number> = {
   [K in keyof T & string]: T[K] extends Primitive
     ? K
     : T[K] extends readonly any[]
@@ -72,6 +75,7 @@ export type Paths<T, Depth extends number = MaxDepth> = Depth extends 0
   : T extends readonly any[]
   ? ArrayPaths<T, Depth>
   : ObjectPaths<T, Depth>;
+
 /**
  * Улучшенное извлечение типа по пути с поддержкой кортежей
  */
@@ -99,18 +103,38 @@ export type ExtractPathType<
     : never
   : never;
 //prettier-ignore
-type Decrement<N extends number> = 
-N extends 10 ? 9 :
-N extends 9 ? 8 :
-N extends 8 ? 7 :
-N extends 7 ? 6 :
-N extends 6 ? 5 :
-N extends 5 ? 4 :
-N extends 4 ? 3 :
-N extends 3 ? 2 :
-N extends 2 ? 1 :
-N extends 1 ? 0 :
-never;
+export type Decrement<N extends number> = 
+  N extends 30 ? 29 :
+  N extends 29 ? 28 :
+  N extends 28 ? 27 :
+  N extends 27 ? 26 :
+  N extends 26 ? 25 :
+  N extends 25 ? 24 :
+  N extends 24 ? 23 :
+  N extends 23 ? 22 :
+  N extends 22 ? 21 :
+  N extends 21 ? 20 :
+  N extends 20 ? 19 :
+  N extends 19 ? 18 :
+  N extends 18 ? 17 :
+  N extends 17 ? 16 :
+  N extends 16 ? 15 :
+  N extends 15 ? 14 :
+  N extends 14 ? 13 :
+  N extends 13 ? 12 :
+  N extends 12 ? 11 :
+  N extends 11 ? 10 :
+  N extends 10 ? 9 :
+  N extends 9 ? 8 :
+  N extends 8 ? 7 :
+  N extends 7 ? 6 :
+  N extends 6 ? 5 :
+  N extends 5 ? 4 :
+  N extends 4 ? 3 :
+  N extends 3 ? 2 :
+  N extends 2 ? 1 :
+  N extends 1 ? 0 :
+  never;
 
 /**
  * Middleware — функция-перехватчик, оборачивающая базовую функцию обновления.
@@ -121,10 +145,10 @@ never;
  * @param next Следующая функция обновления
  * @returns Обернутая функция обновления
  */
-export type Middleware<T extends object> = (
-  store: ObservableStore<T>,
-  next: (path: Paths<T>, value: any) => void
-) => (path: Paths<T>, value: any) => void;
+export type Middleware<T extends object, D extends number = MaxDepth> = (
+  store: ObservableStore<T, D>,
+  next: (path: Paths<T, D>, value: any) => void
+) => (path: Paths<T, D>, value: any) => void;
 
 /**
  * Опции для метода optimisticUpdate.
@@ -142,7 +166,10 @@ export interface OptimisticUpdateOptions {
  * Интерфейс реактивного хранилища, поддерживающего подписку, обновления по путям,
  * optimistic и debounced обновления.
  */
-export interface ObservableStore<T extends object> {
+export interface ObservableStore<
+  T extends object,
+  D extends number = MaxDepth
+> {
   /**
    * Текущее значение хранилища (только для чтения).
    */
@@ -182,7 +209,7 @@ export interface ObservableStore<T extends object> {
    * @see {@link CacheKey} Типы поддерживаемых ключей
    * @see {@link subscribe} О подписке с cacheKeys
    */
-  invalidateCache: (key: CacheKey<T> | CacheKey<T>[]) => void;
+  invalidateCache(keys: CacheKey<T, D> | CacheKey<T, D>[]): void;
 
   /**
    * Получает значение по указанному пути.
@@ -190,7 +217,7 @@ export interface ObservableStore<T extends object> {
    * @param {P} path Путь к значению
    * @returns {ExtractPathType<T, P>} Значение по пути
    */
-  get<P extends Paths<T>>(path: P): ExtractPathType<T, P>;
+  get<P extends Paths<T, D>>(path: P): ExtractPathType<T, P, D>;
 
   /**
    * Обновляет значение по пути.
@@ -200,25 +227,10 @@ export interface ObservableStore<T extends object> {
    * @param path Путь к обновляемому значению
    * @param valueOrFn Новое значение или функция обновления
    */
-  update<P extends Paths<T>>(
+  update<P extends Paths<T, D>>(
     path: P,
-    valueOrFn: ExtractPathType<T, P> | UpdateFn<T, P>
+    valueOrFn: ExtractPathType<T, P, D> | UpdateFn<T, P, D>
   ): void;
-
-  /**
-   * Асинхронно обновляет несколько путей. Все обновления применяются батчем.
-   *
-   * @template P Путь
-   * @param updates Массив обновлений
-   * @returns Массив результатов
-   */
-  updateManyAsync<P extends Paths<T>>(
-    updates: Array<{
-      path: P;
-      asyncFn: (current: ExtractPathType<T, P>) => Promise<any>;
-    }>
-  ): Promise<Array<{ path: P; value: any }>>;
-
   /**
    * Асинхронное обновление значения по одному пути.
    *
@@ -227,10 +239,23 @@ export interface ObservableStore<T extends object> {
    * @param asyncFn Функция, возвращающая Promise нового значения
    * @returns Новый результат
    */
-  updateAsync<P extends Paths<T>>(
+  updateAsync<P extends Paths<T, D>>(
     path: P,
-    asyncFn: (current: ExtractPathType<T, P>) => Promise<any>
+    asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>
   ): Promise<any>;
+  /**
+   * Асинхронно обновляет несколько путей. Все обновления применяются батчем.
+   *
+   * @template P Путь
+   * @param updates Массив обновлений
+   * @returns Массив результатов
+   */
+  updateManyAsync<P extends Paths<T, D>>(
+    updates: Array<{
+      path: P;
+      asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>;
+    }>
+  ): Promise<Array<{ path: P; value: any }>>;
 
   /**
    * Выполняет серию обновлений как транзакцию. При ошибке происходит откат.
@@ -238,7 +263,7 @@ export interface ObservableStore<T extends object> {
    * @param asyncFn Функция с обновлениями
    */
   transaction(
-    asyncFn: (store: ObservableStore<T>) => Promise<void>
+    asyncFn: (store: ObservableStore<T, D>) => Promise<void>
   ): Promise<void>;
 
   /**
@@ -251,12 +276,15 @@ export interface ObservableStore<T extends object> {
    * @param options Опции обновления
    * @returns Финальное значение
    */
-  optimisticUpdate<P extends Paths<T>>(
+  optimisticUpdate<P extends Paths<T, D>>(
     path: P,
-    asyncFn: (current: ExtractPathType<T, P>) => Promise<ExtractPathType<T, P>>,
-    optimisticValue: ExtractPathType<T, P>,
-    options: OptimisticUpdateOptions
-  ): Promise<ExtractPathType<T, P>>;
+    asyncFn: (
+      current: ExtractPathType<T, P, D>,
+      signal?: AbortSignal
+    ) => Promise<any>,
+    optimisticValue: ExtractPathType<T, P, D>,
+    options?: OptimisticUpdateOptions
+  ): Promise<any>;
   /**
    * Выполняет отложенное обновление. Повторные вызовы сбрасывают таймер.
    *
@@ -266,9 +294,12 @@ export interface ObservableStore<T extends object> {
    * @param delay Задержка в миллисекундах
    * @returns Результат обновления
    */
-  debouncedUpdate<P extends Paths<T>>(
+  debouncedUpdate<P extends Paths<T, D>>(
     path: P,
-    asyncFn: (current: ExtractPathType<T, P>) => Promise<any>,
+    asyncFn: (
+      current: ExtractPathType<T, P, D>,
+      signal?: AbortSignal
+    ) => Promise<any>,
     delay?: number
   ): Promise<any>;
 
@@ -279,7 +310,10 @@ export interface ObservableStore<T extends object> {
    * @param reason Причина отмены
    * @returns Текущий экземпляр хранилища
    */
-  cancelOptimisticUpdate(path: Paths<T>, reason?: string): ObservableStore<T>;
+  cancelOptimisticUpdate(
+    path: Paths<T, D>,
+    reason?: string
+  ): ObservableStore<T, D>;
 
   /**
    * Выполняет серию обновлений в рамках одной отрисовки (batch).
@@ -297,7 +331,7 @@ export interface ObservableStore<T extends object> {
    *                   - При передаче функции (state => `v${state.version}`) - проверяет изменение результата
    * @returns Функция для отписки
    */
-  subscribe(cb: (val: T) => void, cacheKeys?: CacheKey<T>[]): () => void;
+  subscribe(cb: (val: T) => void, cacheKeys?: CacheKey<T, D>[]): () => void;
 
   /**
    * Подписывает на изменения конкретного поля в хранилище
@@ -309,10 +343,10 @@ export interface ObservableStore<T extends object> {
    *                 - cacheKeys: дополнительные ключи для контроля вызова
    * @returns Функция для отписки
    */
-  subscribeToPath<P extends Paths<T>>(
+  subscribeToPath<P extends Paths<T, D>>(
     path: P,
-    cb: (val: ExtractPathType<T, P>) => void,
-    options?: { immediate?: boolean; cacheKeys?: CacheKey<T>[] }
+    cb: (val: ExtractPathType<T, P, D>) => void,
+    options?: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] }
   ): () => void;
 
   /**

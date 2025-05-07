@@ -5,9 +5,10 @@
     "outDir": "dist",
     "emitDeclarationOnly": true,
     "esModuleInterop": true,
+    "moduleResolution": "bundler",
     "baseUrl": ".",
     "module": "ESNext",
     "target": "ESNext"
   },
-  "include": ["src"]
+  "include": ["src", "node_modules"]
 }

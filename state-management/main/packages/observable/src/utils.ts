@@ -1,20 +1,21 @@
 import { Paths, ExtractPathType, UpdateFn } from "./types";
 
-export function getByPath<T extends object, P extends Paths<T>>(
-  obj: T,
-  path: P
-): ExtractPathType<T, P> {
+export function getByPath<
+  T extends object,
+  P extends Paths<T, D>,
+  D extends number = 5
+>(obj: T, path: P): ExtractPathType<T, P, D> {
   return path.split(".").reduce((acc: any, part) => {
     if (acc === undefined || acc === null) return undefined;
     return acc[part];
-  }, obj) as ExtractPathType<T, P>;
+  }, obj) as ExtractPathType<T, P, D>;
 }
 
-export function setByPath<T extends object, P extends Paths<T>>(
-  obj: T,
-  path: P,
-  value: any
-): T {
+export function setByPath<
+  T extends object,
+  P extends Paths<T, D>,
+  D extends number = 5
+>(obj: T, path: P, value: any): T {
   const parts = path.split(".");
   const last = parts.pop()!;
   const parent = parts.reduce((acc, part) => {
@@ -27,9 +28,9 @@ export function setByPath<T extends object, P extends Paths<T>>(
   return obj;
 }
 
-export function isUpdateFn<T, P extends Paths<T>>(
-  value: ExtractPathType<T, P> | UpdateFn<T, P>
-): value is UpdateFn<T, P> {
+export function isUpdateFn<T, P extends Paths<T, D>, D extends number = 5>(
+  value: ExtractPathType<T, P, D> | UpdateFn<T, P, D>
+): value is UpdateFn<T, P, D> {
   return typeof value === "function";
 }
 

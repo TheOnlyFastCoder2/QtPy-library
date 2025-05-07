@@ -6,6 +6,11 @@ import {
   OptimisticUpdateOptions,
   Paths,
   UpdateFn,
+  Decrement,
+  ArrayPaths,
+  IsTuple,
+  LiteralIndices,
+  ObjectPaths,
 } from "./types";
 import { getByPath, isUpdateFn, setByPath, shallowEqual } from "./utils";
 
@@ -13,14 +18,15 @@ import { getByPath, isUpdateFn, setByPath, shallowEqual } from "./utils";
  * Создает реактивное хранилище с подписками, обновлением по путям, поддержкой middleware, дебаунсом и оптимистичными обновлениями.
  *
  * @template T Тип хранимого состояния
+ * @template D as number Тип глубины вложенности пути для подсказок
  * @param {T} initialValue Начальное состояние
  * @param {Middleware<T>[]} [middlewares=[]] Массив middleware-функций
  * @returns {ObservableStore<T>} Реактивное хранилище
  */
-export function createObservableStore<T extends object>(
+export function createObservableStore<T extends object, D extends number = 5>(
   initialValue: T,
-  middlewares: Middleware<T>[] = []
-): ObservableStore<T> {
+  middlewares: Middleware<T, D>[] = []
+): ObservableStore<T, D> {
   let currentValue = initialValue;
   const debounceTimers = new Map<
     string,
@@ -30,14 +36,14 @@ export function createObservableStore<T extends object>(
   const pathSubscribers = new Map<string, Set<(val: any) => void>>();
   const cachedSubscribers = new Map<string, Set<(val: T) => void>>();
   let isBatching = false;
-  let pendingUpdates: Array<{ path: Paths<T>; value: any }> = [];
-  const get = <P extends Paths<T>>(path: P) => {
-    return getByPath(currentValue, path);
+  let pendingUpdates: Array<{ path: Paths<T, D>; value: any }> = [];
+  const get = <P extends Paths<T, D>>(path: P) => {
+    return getByPath<T, P, D>(currentValue, path);
   };
 
-  const notifyPathSubscribers = <P extends Paths<T>>(
+  const notifyPathSubscribers = <P extends Paths<T, D>>(
     path: P,
-    value: ExtractPathType<T, P>
+    value: ExtractPathType<T, P, D>
   ) => {
     const pathKey = path.toString();
     const subscribers = pathSubscribers.get(pathKey);
@@ -46,9 +52,9 @@ export function createObservableStore<T extends object>(
     }
   };
 
-  const coreUpdate = <P extends Paths<T>>(
+  const coreUpdate = <P extends Paths<T, D>>(
     path: P,
-    valueOrFn: ExtractPathType<T, P> | UpdateFn<T, P>
+    valueOrFn: ExtractPathType<T, P, D> | UpdateFn<T, P, D>
   ) => {
     const value = isUpdateFn(valueOrFn) ? valueOrFn(get(path)) : valueOrFn;
 
@@ -56,17 +62,17 @@ export function createObservableStore<T extends object>(
       pendingUpdates.push({ path, value });
       return;
     }
-    const currentPathValue = getByPath(currentValue, path);
+    const currentPathValue = getByPath<T, P, D>(currentValue, path);
     if (!shallowEqual(currentPathValue, value)) {
       const newValue = { ...currentValue };
-      setByPath(newValue, path, value);
+      setByPath<T, P, D>(newValue, path, value);
       currentValue = newValue;
       subscribers.forEach((cb) => cb(currentValue));
       notifyPathSubscribers(path, value);
     }
   };
   const resolveCacheKey = <T extends object>(
-    key: CacheKey<T>,
+    key: CacheKey<T, D>,
     state: T
   ): string => {
     if (typeof key === "function") {
@@ -114,7 +120,7 @@ export function createObservableStore<T extends object>(
     }) as unknown as Cb;
   };
 
-  const store: ObservableStore<T> = {
+  const store: ObservableStore<T, D> = {
     get current() {
       return currentValue;
     },
@@ -126,10 +132,10 @@ export function createObservableStore<T extends object>(
 
     get,
     update: coreUpdate,
-    updateManyAsync: async function <P extends Paths<T>>(
+    updateManyAsync: async function <P extends Paths<T, D>>(
       updates: Array<{
         path: P;
-        asyncFn: (current: ExtractPathType<T, P>) => Promise<any>;
+        asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>;
       }>
     ) {
       const results = await Promise.all(
@@ -149,9 +155,9 @@ export function createObservableStore<T extends object>(
       return results;
     },
 
-    updateAsync: async <P extends Paths<T>>(
+    updateAsync: async <P extends Paths<T, D>>(
       path: P,
-      asyncFn: (current: ExtractPathType<T, P>) => Promise<any>
+      asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>
     ) => {
       const current = get(path);
       const result = await asyncFn(current);
@@ -160,7 +166,7 @@ export function createObservableStore<T extends object>(
     },
 
     transaction: async (
-      asyncFn: (store: ObservableStore<T>) => Promise<void>
+      asyncFn: (store: ObservableStore<T, D>) => Promise<void>
     ) => {
       const snapshot = { ...currentValue };
 
@@ -173,10 +179,10 @@ export function createObservableStore<T extends object>(
       }
     },
 
-    optimisticUpdate: async <P extends Paths<T>>(
+    optimisticUpdate: async <P extends Paths<T, D>>(
       path: P,
       asyncFn: (
-        current: ExtractPathType<T, P>,
+        current: ExtractPathType<T, P, D>,
         signal?: AbortSignal
       ) => Promise<any>,
       optimisticValue: any,
@@ -227,7 +233,7 @@ export function createObservableStore<T extends object>(
         }
       }
     },
-    cancelOptimisticUpdate(path: Paths<T>, reason?: string) {
+    cancelOptimisticUpdate(path: Paths<T, D>, reason?: string) {
       const timerKey = `opt_${path.toString()}`;
       const timer = debounceTimers.get(timerKey);
       if (timer) {
@@ -236,10 +242,10 @@ export function createObservableStore<T extends object>(
       }
       return this;
     },
-    debouncedUpdate: <P extends Paths<T>>(
+    debouncedUpdate: <P extends Paths<T, D>>(
       path: P,
       asyncFn: (
-        current: ExtractPathType<T, P>,
+        current: ExtractPathType<T, P, D>,
         signal?: AbortSignal
       ) => Promise<any>,
       delay: number = 300
@@ -289,7 +295,7 @@ export function createObservableStore<T extends object>(
         if (pendingUpdates.length > 0) {
           const newValue = { ...currentValue };
           pendingUpdates.forEach(({ path, value }) => {
-            setByPath(newValue, path, value);
+            setByPath<T, any, D>(newValue, path, value);
           });
           pendingUpdates = [];
           if (!Object.is(currentValue, newValue)) {
@@ -343,9 +349,9 @@ export function createObservableStore<T extends object>(
         }
       });
     },
-    subscribeToPath<P extends Paths<T>>(
+    subscribeToPath<P extends Paths<T, D>>(
       path: P,
-      cb: (val: ExtractPathType<T, P>) => void,
+      cb: (val: ExtractPathType<T, P, D>) => void,
       options: { immediate?: boolean; cacheKeys?: CacheKey<T>[] } = {
         immediate: false,
       }
