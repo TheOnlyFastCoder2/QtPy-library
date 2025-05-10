@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/state-management-observable",
-  "version": "0.2.7",
+  "version": "0.3.4",
   "type": "module",
   "author": "QtPy",
   "license": "MIT",
@@ -41,6 +41,7 @@
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
+    "@types/node": "^22.15.17",
     "typescript": "~5.8.3",
     "vite": "^6.3.5"
   }

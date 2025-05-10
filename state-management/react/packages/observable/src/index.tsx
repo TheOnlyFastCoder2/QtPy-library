@@ -1,67 +1,79 @@
-export type { ReactStore, UseStoreReturnType } from "./types";
-
+import { useState, useEffect, useRef } from "react";
 import { createObservableStore } from "@qtpy/state-management-observable";
-import {
+import type {
   CacheKey,
-  ExtractPathType,
-  Paths,
-  UpdateFn,
+  PathTracker,
+  Middleware,
 } from "@qtpy/state-management-observable/types";
-import { ReactStore, UseStoreReturnType } from "./types";
-import { useState, useRef, useEffect } from "react";
-
+import { ReactStoreOptions, ReactStore, UseStoreReturnType } from "./types";
 export { createObservableStore };
+/**
+ * Создаёт ObservableStore и оборачивает его React-хуками
+ * @param initialState - начальное состояние
+ * @param middlewares - опциональный массив middleware
+ * @param options - опции history и cleanup
+ */
 export function createReactStore<T extends object>(
-  initialState: T
+  initialState: T,
+  middlewares: Middleware<T>[] = [],
+  options: ReactStoreOptions = {}
 ): ReactStore<T> {
-  const observableStore = createObservableStore(initialState);
+  // создаём базовый store с middleware и опциями
+  const baseStore = createObservableStore(
+    initialState,
+    middlewares,
+    options as any
+  );
+  const store = baseStore as ReactStore<T>;
 
-  const useStore = <P extends Paths<T>[]>(
+  function useStore<P extends PathTracker<any, any>[]>(
     paths: [...P],
-    options?: {
-      cacheKeys?: CacheKey<T>[];
-    }
-  ): UseStoreReturnType<T, P> => {
-    const { cacheKeys } = options || {};
-    const [, forceUpdate] = useState({});
-    const prevValuesRef = useRef<any[]>([]);
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ): UseStoreReturnType<P> {
+    const cacheKeys = options?.cacheKeys ?? [];
+    const [, setTick] = useState(0);
+    const forceUpdate = () => setTick((t) => t + 1);
 
-    if (prevValuesRef.current.length === 0) {
-      prevValuesRef.current = paths.map((p) => observableStore.get(p));
+    const prevRef = useRef<UseStoreReturnType<P>>([] as any);
+    if (prevRef.current.length === 0) {
+      prevRef.current = paths.map((p) => store.get(p)) as any;
     }
 
     useEffect(() => {
-      const subscription = observableStore.subscribe(
-        () => forceUpdate({}),
-        [...(cacheKeys ?? []), ...paths]
-      );
-      return () => {
-        subscription();
-      };
-    }, [paths.join("|")]);
+      const keys: CacheKey<T>[] = [...cacheKeys, ...paths];
+      const unsubscribe = store.subscribe(() => forceUpdate(), keys);
+      return () => unsubscribe();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [
+      paths.map((p) => store.resolvePath(p)).join("|"),
+      ...cacheKeys.map((k) =>
+        typeof k === "string" ? k : store.resolvePath(k as any)
+      ),
+    ]);
 
-    return paths.map((p) => observableStore.get(p)) as UseStoreReturnType<T, P>;
-  };
-  return {
-    ...observableStore,
-    useStore,
+    return paths.map((p) => store.get(p)) as UseStoreReturnType<P>;
+  }
 
-    useField: <P extends Paths<T>>(
-      path: P,
-      options?: {
-        equalityFn?: (a: any, b: any) => boolean;
-        cacheKeys?: CacheKey<T>[];
-      }
+  function useField<P extends PathTracker<any, any>>(
+    path: P,
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ) {
+    const [value] = useStore([path], options as any);
+    const setValue = (
+      newValue: P extends PathTracker<infer V, any> ? V : never
     ) => {
-      const [value] = useStore([path], options);
-      const setValue = (newValue: ExtractPathType<T, P> | UpdateFn<T, P>) => {
-        observableStore.update(path, newValue);
-      };
-      return [value, setValue] as const;
-    },
+      store.update(path, newValue as any);
+    };
+    return [value, setValue] as const;
+  }
 
-    reloadComponents: (cacheKeys: CacheKey<T>[]) => {
-      observableStore.invalidateCache(cacheKeys);
-    },
-  };
+  function reloadComponents(cacheKeys: CacheKey<T>[]) {
+    cacheKeys.forEach((key) => store.invalidate(key));
+  }
+
+  store.useStore = useStore;
+  store.useField = useField;
+  store.reloadComponents = reloadComponents;
+
+  return store;
 }

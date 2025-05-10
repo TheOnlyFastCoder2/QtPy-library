@@ -1,406 +1,308 @@
+// Refactored ObservableStore implementation with reactive proxy assignment, cache-key-based subscription filtering, and periodic cleanup
 import {
-  CacheKey,
-  ExtractPathType,
   Middleware,
+  Subscriber,
+  CacheKey,
   ObservableStore,
-  OptimisticUpdateOptions,
-  Paths,
-  UpdateFn,
-  Decrement,
-  ArrayPaths,
-  IsTuple,
-  LiteralIndices,
-  ObjectPaths,
+  SubscriptionMeta,
 } from "./types";
-import { getByPath, isUpdateFn, setByPath, shallowEqual } from "./utils";
+import {
+  normalizeCacheKey,
+  shallowEqual,
+  createPathProxy,
+  validatePath,
+} from "./utils";
 
-/**
- * Создает реактивное хранилище с подписками, обновлением по путям, поддержкой middleware, дебаунсом и оптимистичными обновлениями.
- *
- * @template T Тип хранимого состояния
- * @template D as number Тип глубины вложенности пути для подсказок
- * @param {T} initialValue Начальное состояние
- * @param {Middleware<T>[]} [middlewares=[]] Массив middleware-функций
- * @returns {ObservableStore<T>} Реактивное хранилище
- */
-export function createObservableStore<T extends object, D extends number = 5>(
-  initialValue: T,
-  middlewares: Middleware<T, D>[] = []
-): ObservableStore<T, D> {
-  let currentValue = initialValue;
-  const debounceTimers = new Map<
-    string,
-    { timeout: number | undefined; abortController?: AbortController }
-  >();
-  const subscribers = new Set<(val: T) => void>();
-  const pathSubscribers = new Map<string, Set<(val: any) => void>>();
-  const cachedSubscribers = new Map<string, Set<(val: T) => void>>();
-  let isBatching = false;
-  let pendingUpdates: Array<{ path: Paths<T, D>; value: any }> = [];
-  const get = <P extends Paths<T, D>>(path: P) => {
-    return getByPath<T, P, D>(currentValue, path);
-  };
+// --- Helpers & Managers ---
+class HistoryManager {
+  private history = new Map<string, any[]>();
+  private index = new Map<string, number>();
+  constructor(private maxLength: number) {}
 
-  const notifyPathSubscribers = <P extends Paths<T, D>>(
-    path: P,
-    value: ExtractPathType<T, P, D>
-  ) => {
-    const pathKey = path.toString();
-    const subscribers = pathSubscribers.get(pathKey);
-    if (subscribers) {
-      subscribers.forEach((cb) => cb(value));
-    }
-  };
-
-  const coreUpdate = <P extends Paths<T, D>>(
-    path: P,
-    valueOrFn: ExtractPathType<T, P, D> | UpdateFn<T, P, D>
-  ) => {
-    const value = isUpdateFn(valueOrFn) ? valueOrFn(get(path)) : valueOrFn;
-
-    if (isBatching) {
-      pendingUpdates.push({ path, value });
-      return;
-    }
-    const currentPathValue = getByPath<T, P, D>(currentValue, path);
-    if (!shallowEqual(currentPathValue, value)) {
-      const newValue = { ...currentValue };
-      setByPath<T, P, D>(newValue, path, value);
-      currentValue = newValue;
-      subscribers.forEach((cb) => cb(currentValue));
-      notifyPathSubscribers(path, value);
-    }
-  };
-  const resolveCacheKey = <T extends object>(
-    key: CacheKey<T, D>,
-    state: T
-  ): string => {
-    if (typeof key === "function") {
-      return key(state);
-    }
-
-    if (Array.isArray(key)) {
-      return key.join("|");
-    }
-
-    // Пробуем обработать как путь
-    try {
-      const value = getByPath(state, key);
-      return JSON.stringify(value);
-    } catch {
-      // Если не путь - используем как строку
-      return key;
-    }
-  };
-  const createUniversalCachedSubscriber = <Cb extends Function>(
-    cb: Cb,
-    cacheKeys: CacheKey<T>[]
-  ): Cb => {
-    let lastKey: string | null = null;
-    // Регистрируем подписчика для всех его ключей кэша
-    cacheKeys.forEach((key) => {
-      const resolvedKey = resolveCacheKey(key, currentValue);
-      if (!cachedSubscribers.has(resolvedKey)) {
-        cachedSubscribers.set(resolvedKey, new Set());
-      }
-
-      cachedSubscribers.get(resolvedKey)!.add(cb as any as (val: T) => void);
-    });
-
-    return ((...args: any[]) => {
-      const state = args[0];
-      const currentKey = cacheKeys
-        .map((key) => resolveCacheKey(key, state))
-        .join("||");
-
-      if (currentKey !== lastKey) {
-        lastKey = currentKey;
-        return cb(...args);
-      }
-    }) as unknown as Cb;
-  };
-
-  const store: ObservableStore<T, D> = {
-    get current() {
-      return currentValue;
-    },
-    set current(value: T) {
-      if (Object.is(currentValue, value)) return;
-      currentValue = value;
-      subscribers.forEach((cb) => cb(value));
-    },
-
-    get,
-    update: coreUpdate,
-    updateManyAsync: async function <P extends Paths<T, D>>(
-      updates: Array<{
-        path: P;
-        asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>;
-      }>
-    ) {
-      const results = await Promise.all(
-        updates.map(async ({ path, asyncFn }) => {
-          const current = get(path);
-          const result = await asyncFn(current);
-          return { path, value: result };
-        })
-      );
-
-      this.batch(() => {
-        results.forEach(({ path, value }) => {
-          coreUpdate(path, value);
-        });
-      });
-
-      return results;
-    },
-
-    updateAsync: async <P extends Paths<T, D>>(
-      path: P,
-      asyncFn: (current: ExtractPathType<T, P, D>) => Promise<any>
-    ) => {
-      const current = get(path);
-      const result = await asyncFn(current);
-      coreUpdate(path, result);
-      return result;
-    },
-
-    transaction: async (
-      asyncFn: (store: ObservableStore<T, D>) => Promise<void>
-    ) => {
-      const snapshot = { ...currentValue };
-
-      try {
-        await asyncFn(store);
-      } catch (error) {
-        currentValue = snapshot; // Откат при ошибке
-        subscribers.forEach((cb) => cb(currentValue));
-        throw error;
-      }
-    },
-
-    optimisticUpdate: async <P extends Paths<T, D>>(
-      path: P,
-      asyncFn: (
-        current: ExtractPathType<T, P, D>,
-        signal?: AbortSignal
-      ) => Promise<any>,
-      optimisticValue: any,
-      options: OptimisticUpdateOptions = {
-        abortable: true,
-        cancelPrevious: true,
-      }
-    ) => {
-      const timerKey = `opt_${path.toString()}`;
-
-      // Отменяем предыдущий запрос, если нужно
-      if (options.cancelPrevious) {
-        const existingTimer = debounceTimers.get(timerKey);
-        if (existingTimer) {
-          existingTimer.abortController?.abort(
-            options?.reason ?? "Replaced by new optimistic update"
-          );
-          debounceTimers.delete(timerKey);
-        }
-      }
-
-      const previousValue = get(path);
-      coreUpdate(path, optimisticValue);
-
-      const abortController = options.abortable
-        ? new AbortController()
-        : undefined;
-
-      if (abortController) {
-        debounceTimers.set(timerKey, {
-          timeout: setTimeout(() => {}, 0), // Фейковый таймер
-          abortController,
-        });
-      }
-
-      try {
-        const result = await asyncFn(optimisticValue, abortController?.signal);
-        coreUpdate(path, result);
-        return result;
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          coreUpdate(path, previousValue);
-        }
-        throw error;
-      } finally {
-        if (abortController) {
-          debounceTimers.delete(timerKey);
-        }
-      }
-    },
-    cancelOptimisticUpdate(path: Paths<T, D>, reason?: string) {
-      const timerKey = `opt_${path.toString()}`;
-      const timer = debounceTimers.get(timerKey);
-      if (timer) {
-        timer.abortController?.abort(reason || "Optimistic update canceled");
-        debounceTimers.delete(timerKey);
-      }
-      return this;
-    },
-    debouncedUpdate: <P extends Paths<T, D>>(
-      path: P,
-      asyncFn: (
-        current: ExtractPathType<T, P, D>,
-        signal?: AbortSignal
-      ) => Promise<any>,
-      delay: number = 300
-    ) => {
-      const timerKey = path.toString();
-
-      // Отменяем предыдущий таймер и запрос (если есть)
-      const existingTimer = debounceTimers.get(timerKey);
-      if (existingTimer) {
-        clearTimeout(existingTimer.timeout);
-        existingTimer.abortController?.abort(); // Отменяем предыдущий fetch/запрос
-      }
-
-      // Создаем новый AbortController
-      const abortController = new AbortController();
-
-      return new Promise((resolve, reject) => {
-        const timeout = setTimeout(async () => {
-          try {
-            const result = await asyncFn(get(path), abortController.signal);
-            coreUpdate(path, result);
-            resolve(result);
-          } catch (error) {
-            if (error instanceof Error && error.name !== "AbortError") {
-              // Игнорируем ошибки отмены
-              reject(error);
-            }
-          } finally {
-            debounceTimers.delete(timerKey); // Очищаем после выполнения
-          }
-        }, delay);
-
-        // Сохраняем таймер и AbortController для возможной отмены
-        debounceTimers.set(timerKey, { timeout, abortController });
-      });
-    },
-    batch(callback: () => void) {
-      if (isBatching) {
-        callback();
-        return;
-      }
-
-      isBatching = true;
-      pendingUpdates = [];
-      try {
-        callback();
-        if (pendingUpdates.length > 0) {
-          const newValue = { ...currentValue };
-          pendingUpdates.forEach(({ path, value }) => {
-            setByPath<T, any, D>(newValue, path, value);
-          });
-          pendingUpdates = [];
-          if (!Object.is(currentValue, newValue)) {
-            currentValue = newValue;
-            subscribers.forEach((cb) => cb(currentValue));
-          }
-        }
-      } finally {
-        isBatching = false;
-        pendingUpdates = [];
-      }
-    },
-
-    subscribe(cb: (val: T) => void, cacheKeys: CacheKey<T>[] = []) {
-      const cachedSubscriber = cacheKeys.length
-        ? createUniversalCachedSubscriber(cb, cacheKeys)
-        : cb;
-
-      subscribers.add(cachedSubscriber);
-      return () => {
-        subscribers.delete(cachedSubscriber);
-        // Очищаем из cachedSubscribers
-        cacheKeys.forEach((key) => {
-          const resolvedKey = resolveCacheKey(key, currentValue);
-          cachedSubscribers.get(resolvedKey)?.delete(cachedSubscriber);
-        });
-      };
-    },
-    invalidateCache(keys: CacheKey<T> | CacheKey<T>[]) {
-      // Нормализуем в массив (если передан одиночный ключ)
-      const keysToInvalidate = Array.isArray(keys)
-        ? // Если это массив ключей (не массив-ключ)
-          keys.every((k) => !Array.isArray(k) || typeof k === "function")
-          ? keys
-          : [keys]
-        : [keys];
-
-      // Приводим к плоскому массиву ключей
-      const flatKeys = keysToInvalidate.flatMap((k) =>
-        Array.isArray(k) && k.every((i) => typeof i === "string") ? [k] : [k]
-      );
-
-      flatKeys.forEach((key) => {
-        const resolvedKey = resolveCacheKey(key, currentValue);
-        const subscribersToNotify = cachedSubscribers.get(resolvedKey);
-
-        if (subscribersToNotify) {
-          // Создаем копию для безопасного итерирования
-          const subscribersCopy = new Set(subscribersToNotify);
-          subscribersCopy.forEach((cb) => cb(currentValue));
-        }
-      });
-    },
-    subscribeToPath<P extends Paths<T, D>>(
-      path: P,
-      cb: (val: ExtractPathType<T, P, D>) => void,
-      options: { immediate?: boolean; cacheKeys?: CacheKey<T>[] } = {
-        immediate: false,
-      }
-    ) {
-      const pathKey = path.toString();
-      const cachedSubscriber = options.cacheKeys?.length
-        ? createUniversalCachedSubscriber(cb, options.cacheKeys)
-        : cb;
-
-      if (!pathSubscribers.has(pathKey)) {
-        pathSubscribers.set(pathKey, new Set());
-      }
-
-      const subscribers = pathSubscribers.get(pathKey)!;
-      subscribers.add(cachedSubscriber);
-
-      if (options.immediate) {
-        cachedSubscriber(get(path));
-      }
-
-      return () => {
-        subscribers.delete(cachedSubscriber);
-        if (subscribers.size === 0) {
-          pathSubscribers.delete(pathKey);
-        }
-      };
-    },
-
-    clearDebounceTimers() {
-      debounceTimers.forEach(({ timeout, abortController }) => {
-        clearTimeout(timeout);
-        abortController?.abort("Operation canceled by clearDebounceTimers");
-      });
-      debounceTimers.clear();
-      return this;
-    },
-
-    destroy() {
-      this.clearDebounceTimers();
-      subscribers.clear();
-      pathSubscribers.clear();
-      return this;
-    },
-  };
-
-  let update = coreUpdate;
-  for (let i = middlewares.length - 1; i >= 0; i--) {
-    update = middlewares[i](store, update);
+  push(path: string, prevValue: any) {
+    const hist = this.history.get(path) || [];
+    let idx = this.index.get(path) ?? -1;
+    if (idx + 1 < hist.length) hist.splice(idx + 1);
+    hist.push(prevValue);
+    if (hist.length > this.maxLength) hist.shift();
+    idx = hist.length - 1;
+    this.history.set(path, hist);
+    this.index.set(path, idx);
   }
-  store.update = update;
-  return store;
+
+  undo(path: string) {
+    const hist = this.history.get(path);
+    let idx = this.index.get(path) ?? -1;
+    if (!hist || idx < 0) return;
+    const value = hist[idx];
+    this.index.set(path, idx - 1);
+    return value;
+  }
+
+  redo(path: string) {
+    const hist = this.history.get(path);
+    let idx = this.index.get(path) ?? -1;
+    if (!hist || idx >= hist.length) return;
+    const value = hist[idx];
+    this.index.set(path, idx);
+    return value;
+  }
+
+  // Remove history entries for paths not in the provided set
+  pruneUnused(usedPaths: Set<string>) {
+    for (const path of Array.from(this.history.keys())) {
+      if (!usedPaths.has(path)) {
+        this.history.delete(path);
+        this.index.delete(path);
+      }
+    }
+  }
+
+  getEntries() {
+    return Array.from(this.history.entries()).map(([path, h]) => ({
+      path,
+      length: h.length,
+    }));
+  }
 }
+
+export function createObservableStore<T extends object>(
+  initialState: T,
+  middlewares: Middleware<T>[] = [],
+  options: { maxHistoryLength?: number; cleanupInterval?: number } = {}
+): ObservableStore<T> {
+  const { maxHistoryLength = Infinity, cleanupInterval = 5000 } = options;
+  let rawState = { ...initialState };
+  let batching = false;
+  let pending = new Map<string, any>();
+
+  const subscribers = new Set<Subscriber<T>>();
+  const pathSubscribers = new Map<string, Set<Subscriber<any>>>();
+  const aborters = new Map<string, AbortController>();
+
+  const historyMgr = new HistoryManager(maxHistoryLength);
+  const { $, getProxyPath, getProxyFromStringPath } = createPathProxy<T>();
+
+  // resolve paths from proxies or strings
+  const resolve = (p: any) =>
+    typeof p === "string" ? p : getProxyPath(p)?.join(".") || "";
+  // read raw value
+  const getRaw = (path: string) =>
+    path.split(".").reduce((o, k) => o?.[k], rawState);
+  const setRaw = (path: string, val: any) => {
+    const parts = path.split(".");
+    const last = parts.pop()!;
+    const obj = parts.reduce((o, k) => o[k], rawState);
+    obj[last] = val;
+  };
+
+  // create reactive proxy for direct assignment
+  function createReactiveProxy(obj: any, basePath = ""): any {
+    return new Proxy(obj, {
+      get(target, prop) {
+        const key = String(prop);
+        const fullPath = basePath ? `${basePath}.${key}` : key;
+        const val = target[key];
+        if (val && typeof val === "object") {
+          return createReactiveProxy(val, fullPath);
+        }
+        if (batching && pending.has(fullPath)) return pending.get(fullPath);
+        return getRaw(fullPath);
+      },
+      set(_, prop, value) {
+        const key = String(prop);
+        const fullPath = basePath ? `${basePath}.${key}` : key;
+        if (batching) pending.set(fullPath, value);
+        else store.update(getProxyFromStringPath(fullPath), value);
+        return true;
+      },
+    });
+  }
+
+  // placeholder for store
+  const store: any = {};
+  const stateProxy = createReactiveProxy(rawState);
+  Object.defineProperty(store, "state", { get: () => stateProxy });
+  store.$ = $;
+  // notification: global subscribers filtered by cacheKeys
+  function notifyInvalidate(normalizedKey: string) {
+    subscribers.forEach((sub) => {
+      const meta: SubscriptionMeta = (sub as any).__meta;
+      if (!meta.cacheKeys || meta.cacheKeys.has(normalizedKey)) sub(stateProxy);
+    });
+  }
+  const notifyPath = (path: string, val: any) =>
+    pathSubscribers.get(path)?.forEach((cb) => cb(val));
+
+  // core update logic
+  const doUpdate = (path: string, newVal: any) => {
+    const oldVal = getRaw(path);
+    if (shallowEqual(oldVal, newVal)) return;
+    historyMgr.push(path, oldVal);
+    setRaw(path, newVal);
+    notifyPath(path, newVal);
+    notifyInvalidate(path);
+  };
+
+  // cleanup unused history periodically
+  function performCleanup() {
+    const used = new Set<string>(pathSubscribers.keys());
+    historyMgr.pruneUnused(used);
+  }
+  if (cleanupInterval) {
+    setInterval(performCleanup, cleanupInterval);
+  }
+
+  // API methods
+  store.update = (pathProxy: any, value: any) => {
+    validatePath(pathProxy);
+    const pathStr = resolve(pathProxy);
+    if (batching) pending.set(pathStr, value);
+    else doUpdate(pathStr, value);
+  };
+
+  store.asyncUpdate = async (
+    pathProxy: any,
+    updater: (cur: any, signal: AbortSignal) => Promise<any>
+  ) => {
+    validatePath(pathProxy);
+    const pathStr = resolve(pathProxy);
+    aborters.get(pathStr)?.abort();
+    const ctrl = new AbortController();
+    aborters.set(pathStr, ctrl);
+    try {
+      const old = getRaw(pathStr);
+      const res = await updater(old, ctrl.signal);
+      if (!ctrl.signal.aborted)
+        store.update(getProxyFromStringPath(pathStr), res);
+    } catch (e) {
+      if ((e as any).name !== "AbortError") console.error(e);
+    } finally {
+      aborters.delete(pathStr);
+    }
+  };
+
+  store.batch = async (fn: () => void, isAsync = false) => {
+    if (!batching) {
+      batching = true;
+      pending.clear();
+      isAsync ? await fn() : fn();
+      const changedPaths = new Set<string>();
+      for (const [path, value] of pending) {
+        const old = getRaw(path);
+        if (!shallowEqual(old, value)) {
+          historyMgr.push(path, old);
+          setRaw(path, value);
+          changedPaths.add(path);
+        }
+      }
+
+      pending.clear();
+      if (changedPaths.size > 0) {
+        for (const path of changedPaths) {
+          notifyPath(path, getRaw(path));
+        }
+        subscribers.forEach((sub) => sub(stateProxy));
+      }
+      batching = false;
+    } else fn();
+  };
+
+  store.undo = (p) => {
+    validatePath(p);
+    const path = resolve(p);
+    const v = historyMgr.undo(path);
+    if (v !== undefined) doUpdate(path, v);
+  };
+  store.redo = (p) => {
+    validatePath(p);
+    const path = resolve(p);
+    const v = historyMgr.redo(path);
+    if (v !== undefined) doUpdate(path, v);
+  };
+
+  store.subscribe = (cb: Subscriber<T>, keys?: CacheKey<T>[]) => {
+    const normKeys = keys
+      ? new Set(keys.map((k) => normalizeCacheKey(k, store)))
+      : undefined;
+    const meta: SubscriptionMeta = {
+      active: true,
+      trackedPaths: new Set(),
+      cacheKeys: normKeys,
+    };
+    const wrap = (s: T) => {
+      if (meta.active) cb(s);
+    };
+    (wrap as any).__meta = meta;
+    subscribers.add(wrap);
+    return () => {
+      meta.active = false;
+      subscribers.delete(wrap);
+    };
+  };
+
+  store.subscribeToPath = (
+    pathProxy,
+    cb: Subscriber<any>,
+    opts: { immediate?: boolean } = {}
+  ) => {
+    validatePath(pathProxy);
+    const { immediate = false } = opts;
+    const path = resolve(pathProxy);
+    const wrap = (v: any) => cb(v);
+    if (!pathSubscribers.has(path)) pathSubscribers.set(path, new Set());
+    pathSubscribers.get(path)!.add(wrap);
+    if (immediate) wrap(getRaw(path));
+    return () => pathSubscribers.get(path)!.delete(wrap);
+  };
+
+  store.invalidate = (keyProxy: any) => {
+    const key = resolve(keyProxy);
+    notifyInvalidate(key);
+  };
+
+  store.cancelAsyncUpdates = (p?: any) => {
+    if (p) aborters.get(resolve(p))?.abort();
+    else aborters.forEach((c) => c.abort());
+  };
+
+  store.clearStore = () => {
+    subscribers.clear();
+    pathSubscribers.clear();
+    aborters.clear();
+  };
+
+  store.get = (p: any) => {
+    validatePath(p);
+    return getRaw(resolve(p));
+  };
+
+  store.resolvePath = resolve;
+  store.manualCleanup = performCleanup;
+  store.getMemoryStats = () => ({
+    subscribersCount: subscribers.size,
+    pathSubscribersCount: pathSubscribers.size,
+    historyEntries: historyMgr.getEntries(),
+    activePathsCount: pathSubscribers.size,
+  });
+
+  // apply middlewares
+  let upd = store.update;
+  middlewares.reverse().forEach((mw) => {
+    upd = mw(store, upd);
+  });
+  store.update = upd;
+
+  return store as ObservableStore<T>;
+}
+
+const store = createObservableStore<{
+  counter: number;
+  user: { name: string; email: string };
+}>({
+  counter: 0,
+  user: {
+    name: "sasha",
+    email: "email@ru",
+  },
+});

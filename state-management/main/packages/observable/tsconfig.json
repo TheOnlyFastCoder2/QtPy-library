@@ -10,5 +10,5 @@
     "module": "ESNext",
     "target": "ESNext"
   },
-  "include": ["src", "node_modules"]
+  "include": ["src"]
 }
