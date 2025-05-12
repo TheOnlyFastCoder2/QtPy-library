@@ -77,7 +77,6 @@ export function createObservableStore<T extends object>(
   // === Batching infrastructure ===
   let batching = false;
   const pendingStack: Map<string, any>[] = [];
-  let batchQueue: Promise<void> = Promise.resolve();
 
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<any>>>();
