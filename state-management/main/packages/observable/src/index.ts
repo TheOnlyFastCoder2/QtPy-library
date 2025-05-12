@@ -73,8 +73,11 @@ export function createObservableStore<T extends object>(
 ): ObservableStore<T> {
   const { maxHistoryLength = Infinity, cleanupInterval = 5000 } = options;
   let rawState = { ...initialState };
+
+  // === Batching infrastructure ===
   let batching = false;
-  let pending = new Map<string, any>();
+  const pendingStack: Map<string, any>[] = [];
+  let batchQueue: Promise<void> = Promise.resolve();
 
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<any>>>();
@@ -83,6 +86,7 @@ export function createObservableStore<T extends object>(
   const historyMgr = new HistoryManager(maxHistoryLength);
   const { $, getProxyPath, getProxyFromStringPath } = createPathProxy<T>();
 
+  const currentPending = () => pendingStack[pendingStack.length - 1];
   // resolve paths from proxies or strings
   const resolve = (p: any) =>
     typeof p === "string" ? p : getProxyPath(p)?.join(".") || "";
@@ -96,24 +100,42 @@ export function createObservableStore<T extends object>(
     obj[last] = val;
   };
 
+  // Core update logic extracted for reuse
+  function commit(pending: Map<string, any>) {
+    for (const [path, value] of pending) {
+      const oldVal = getRaw(path);
+      if (!shallowEqual(oldVal, value)) {
+        historyMgr.push(path, oldVal);
+        setRaw(path, value);
+        notifyPath(path, value);
+        notifyInvalidate(path);
+      }
+    }
+  }
   // create reactive proxy for direct assignment
   function createReactiveProxy(obj: any, basePath = ""): any {
     return new Proxy(obj, {
       get(target, prop) {
         const key = String(prop);
         const fullPath = basePath ? `${basePath}.${key}` : key;
-        const val = target[key];
-        if (val && typeof val === "object") {
-          return createReactiveProxy(val, fullPath);
+
+        if (batching && currentPending()?.has(fullPath)) {
+          return currentPending()!.get(fullPath);
         }
-        if (batching && pending.has(fullPath)) return pending.get(fullPath);
-        return getRaw(fullPath);
+
+        const cur = getRaw(fullPath);
+        return cur !== null && typeof cur === "object"
+          ? createReactiveProxy(cur, fullPath)
+          : cur;
       },
       set(_, prop, value) {
         const key = String(prop);
         const fullPath = basePath ? `${basePath}.${key}` : key;
-        if (batching) pending.set(fullPath, value);
-        else store.update(getProxyFromStringPath(fullPath), value);
+        if (batching) {
+          currentPending()!.set(fullPath, value);
+        } else {
+          store.update(getProxyFromStringPath(fullPath), value);
+        }
         return true;
       },
     });
@@ -156,25 +178,34 @@ export function createObservableStore<T extends object>(
   // API methods
   store.update = (pathProxy: any, value: any) => {
     validatePath(pathProxy);
-    const pathStr = resolve(pathProxy);
-    if (batching) pending.set(pathStr, value);
-    else doUpdate(pathStr, value);
+    const path = resolve(pathProxy);
+    const old = getRaw(path);
+    const newVal = typeof value === "function" ? (value as any)(old) : value;
+    if (batching) {
+      currentPending()!.set(path, newVal);
+    } else {
+      doUpdate(path, newVal);
+    }
   };
 
   store.asyncUpdate = async (
     pathProxy: any,
-    updater: (cur: any, signal: AbortSignal) => Promise<any>
+    updater: (cur: any, signal: AbortSignal) => Promise<any>,
+    options: { abortPrevious?: boolean } = { abortPrevious: false }
   ) => {
     validatePath(pathProxy);
     const pathStr = resolve(pathProxy);
-    aborters.get(pathStr)?.abort();
+    if (options.abortPrevious) {
+      aborters.get(pathStr)?.abort();
+    }
     const ctrl = new AbortController();
     aborters.set(pathStr, ctrl);
     try {
       const old = getRaw(pathStr);
       const res = await updater(old, ctrl.signal);
-      if (!ctrl.signal.aborted)
+      if (!ctrl.signal.aborted) {
         store.update(getProxyFromStringPath(pathStr), res);
+      }
     } catch (e) {
       if ((e as any).name !== "AbortError") console.error(e);
     } finally {
@@ -182,32 +213,29 @@ export function createObservableStore<T extends object>(
     }
   };
 
-  store.batch = async (fn: () => void, isAsync = false) => {
-    if (!batching) {
-      batching = true;
-      pending.clear();
-      isAsync ? await fn() : fn();
-      const changedPaths = new Set<string>();
-      for (const [path, value] of pending) {
-        const old = getRaw(path);
-        if (!shallowEqual(old, value)) {
-          historyMgr.push(path, old);
-          setRaw(path, value);
-          changedPaths.add(path);
-        }
-      }
+  store.batch = (fn: () => void) => {
+    // Push a new pending context
+    pendingStack.push(new Map());
+    batching = true;
 
-      pending.clear();
-      if (changedPaths.size > 0) {
-        for (const path of changedPaths) {
-          notifyPath(path, getRaw(path));
+    try {
+      fn(); // run user's updates
+    } finally {
+      const myPending = pendingStack.pop()!;
+      if (pendingStack.length > 0) {
+        // nested batch: merge into parent
+        const parent = currentPending()!;
+        for (const [path, val] of myPending) {
+          parent.set(path, val);
         }
-        subscribers.forEach((sub) => sub(stateProxy));
+      } else {
+        // top-level batch: commit all changes
+        commit(myPending);
+        batching = false;
       }
-      batching = false;
-    } else fn();
+    }
+    return Promise.resolve();
   };
-
   store.undo = (p) => {
     validatePath(p);
     const path = resolve(p);
@@ -295,14 +323,3 @@ export function createObservableStore<T extends object>(
 
   return store as ObservableStore<T>;
 }
-
-const store = createObservableStore<{
-  counter: number;
-  user: { name: string; email: string };
-}>({
-  counter: 0,
-  user: {
-    name: "sasha",
-    email: "email@ru",
-  },
-});

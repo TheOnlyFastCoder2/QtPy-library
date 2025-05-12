@@ -234,24 +234,31 @@ export interface ObservableStore<T> {
 
   /**
    * Perform an async update with cancellation support.
-   * @param path - Path tracker identifying the property.
-   * @param asyncUpdater - Async function receiving current value and abort signal.
-   * @returns Promise resolving when update completes.
+   *
+   * @param path - Path tracker identifying the property to update.
+   * @param asyncUpdater - Async function that receives:
+   *   - `current`: the current value at `path`
+   *   - `signal`: an `AbortSignal` which will be triggered if this update is cancelled
+   *   Should return a `Promise` resolving to the new value.
+   * @param options - Optional settings for controlling cancellation behavior.
+   * @param options.abortPrevious - If `true`, will abort any still-pending update on the same path before starting this one.
+   *                                 Defaults to `false` (i.e. do not cancel previous calls).
+   * @returns A `Promise<void>` that resolves once the update has been applied (or is cancelled).
    */
   asyncUpdate<P extends PathTracker<any, any>>(
     path: P,
     asyncUpdater: (
       current: P[typeof TYPE_SYMBOL],
       signal: AbortSignal
-    ) => Promise<P[typeof TYPE_SYMBOL]>
+    ) => Promise<P[typeof TYPE_SYMBOL]>,
+    options?: { abortPrevious?: boolean }
   ): Promise<void>;
 
   /**
    * Batch multiple updates in one cycle.
    * @param callback - Function containing update calls.
-   * @param isAsync - Whether callback returns a promise.
    */
-  batch(callback: () => void, isAsync?: boolean): void;
+  batch(callback: () => void): void;
 
   /**
    * Undo last update on a path.
