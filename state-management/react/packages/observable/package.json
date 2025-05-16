@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/state-management-react",
-  "version": "0.1.2",
+  "version": "0.1.4",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
@@ -29,7 +29,7 @@
     "reactivity"
   ],
   "dependencies": {
-    "@qtpy/state-management-observable": "^0.3.9",
+    "@qtpy/state-management-observable": "^0.4.1",
     "react": ">=16.8",
     "react-dom": ">=16.8"
   },

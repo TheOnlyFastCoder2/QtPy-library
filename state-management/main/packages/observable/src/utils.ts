@@ -1,4 +1,11 @@
-import { CacheKey, ObservableStore, PathProxy, PathTracker } from "./types";
+import {
+  CacheKey,
+  ObservableStore,
+  PathNode,
+  PathProxy,
+  PathTracker,
+} from "./types";
+type AnyObject = Record<string, any>;
 
 export function normalizeCacheKey<T>(
   cacheKey: CacheKey<T>,
@@ -10,86 +17,160 @@ export function normalizeCacheKey<T>(
 
   if (typeof cacheKey === "function") {
     return cacheKey(store.state);
-  } else if (typeof cacheKey === "object" && cacheKey !== null) {
+  } else if (isProxyPath(cacheKey)) {
     return store.resolvePath(cacheKey);
   } else {
     return String(cacheKey);
   }
 }
-// PathProxy реализация
-export function createPathProxy<T extends object>() {
-  const pathMap = new WeakMap<any, PropertyKey[]>();
+/**
+ * Creates a PathTracker proxy for an object shape T.
+ * - Lazy creation: nested proxies built only on first access.
+ * - Caching: ensures unique instances per path.
+ * - Enhanced traps: uses Reflect, supports has, ownKeys, and descriptors.
+ */
+export function createPathProxy<T extends object>(): {
+  $: PathProxy<T>;
+  getProxyPath(proxy: object): PropertyKey[] | undefined;
+  getProxyFromStringPath(pathStr: string): PathProxy<T>;
+} {
+  const nodeCache = new WeakMap<object, PathNode>();
+  const childCache = new WeakMap<object, Map<PropertyKey, PathProxy<any>>>();
 
-  function makeProxy(path: PropertyKey[] = []): any {
-    const proxy = new Proxy(
-      {
-        __brand: "PathTracker" as const,
-        __path: path,
-        __type: undefined as unknown,
+  // Быстрая проверка, что строка состоит только из цифр
+  function isNumericString(s: string): boolean {
+    if (s.length === 0) return false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      if (c < 48 || c > 57) return false;
+    }
+    return true;
+  }
+
+  // Преобразуем "123" → 123; всё остальное — 그대로
+  function normalizeKey(key: PropertyKey): PropertyKey {
+    if (typeof key === "string" && isNumericString(key)) {
+      return Number(key);
+    }
+    return key;
+  }
+
+  // Основная фабрика прокси
+  function makeProxy(node: PathNode): PathProxy<any> {
+    const target: any = {};
+    // Делаем служебные поля неперечислимыми
+    Object.defineProperties(target, {
+      __brand: { value: "PathTracker", writable: false, enumerable: false },
+      __type: { value: undefined, writable: true, enumerable: false },
+      __node: { value: node, writable: false, enumerable: false },
+    });
+
+    const handler: ProxyHandler<any> = {
+      get(_t, prop, receiver) {
+        // Служебное поле — напрямую
+        if (prop === "__brand" || prop === "__type" || prop === "__node") {
+          return Reflect.get(target, prop, receiver);
+        }
+        const key = normalizeKey(prop);
+        // Ленивая инициализация child-кэша
+        let map = childCache.get(receiver as object);
+        if (!map) {
+          map = new Map();
+          childCache.set(receiver as object, map);
+        }
+        if (map.has(key)) {
+          return map.get(key)!;
+        }
+        // Создаём нового ребёнка
+        const childNode: PathNode = { parent: node, key };
+        const child = makeProxy(childNode);
+        map.set(key, child);
+        return child;
       },
-      {
-        get(target, key) {
-          if (key === "__brand") return target.__brand;
-          if (key === "__path") return target.__path;
-          if (key === "__type") return target.__type;
+      has() {
+        // Чтобы `in proxy` всегда возвращал true
+        return true;
+      },
+    };
 
-          const nextPath = [...path, key];
-          return makeProxy(nextPath);
-        },
-      }
-    );
-
-    pathMap.set(proxy, path);
+    const proxy = new Proxy(target, handler) as PathProxy<any>;
+    nodeCache.set(proxy as object, node);
     return proxy;
   }
 
-  const root = makeProxy([]);
+  // Восстановление массива ключей
+  function getProxyPath(proxy: object): PropertyKey[] | undefined {
+    const node = nodeCache.get(proxy);
+    if (!node) return undefined;
+    const path: PropertyKey[] = [];
+    let cur: PathNode | null = node;
+    while (cur.parent) {
+      path.push(cur.key);
+      cur = cur.parent;
+    }
+    return path.reverse();
+  }
+
+  // Парсинг строки "a.b.0.c" в прокси
+  function getProxyFromStringPath(pathStr: string): PathProxy<T> {
+    const keys = pathStr
+      .split(".")
+      .map((k) => (isNumericString(k) ? Number(k) : (k as PropertyKey)));
+    let cur: any = root;
+    for (const k of keys) {
+      cur = cur[k];
+    }
+    return cur;
+  }
+
+  // Корень с пустым узлом
+  const rootNode: PathNode = { parent: null, key: Symbol("root") };
+  const root = makeProxy(rootNode) as PathProxy<T>;
 
   return {
-    $: root as PathProxy<T>,
-    getProxyPath(proxy: any): PropertyKey[] | undefined {
-      return pathMap.get(proxy);
-    },
-    getProxyFromStringPath(pathStr: string): any {
-      const keys: PropertyKey[] = pathStr.split(".").map((key) => {
-        return /^\d+$/.test(key) ? Number(key) : key;
-      });
-
-      let current = root;
-      for (const key of keys) {
-        current = current[key];
-      }
-      return current;
-    },
+    $: root,
+    getProxyPath,
+    getProxyFromStringPath,
   };
 }
 
-// Вспомогательные функции
 export function shallowEqual(a: any, b: any): boolean {
   if (a === b) return true;
-  if (a instanceof Date && b instanceof Date)
+
+  // Handle null/undefined
+  if (a == null || b == null) return a === b;
+
+  // Fast path for different types
+  const typeA = typeof a;
+  const typeB = typeof b;
+  if (typeA !== typeB) return false;
+
+  // Special case for Date
+  if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
-  if (
-    typeof a !== "object" ||
-    typeof b !== "object" ||
-    a === null ||
-    b === null
-  ) {
-    return false;
   }
 
+  // Handle object/array references
+  if (typeA !== "object") return false;
+
+  // Compare object keys
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);
-
   if (keysA.length !== keysB.length) return false;
 
-  for (const key of keysA) {
-    if (!(key in b) || a[key] !== b[key]) {
+  // Compare values (shallow)
+  for (let i = 0; i < keysA.length; i++) {
+    const key = keysA[i];
+    if (!Object.prototype.hasOwnProperty.call(b, key) || a[key] !== b[key]) {
       return false;
     }
   }
 
   return true;
+}
+
+export function isAlreadyProxied(obj: any): boolean {
+  return !!obj && typeof obj === "object" && "__isObservableProxy" in obj;
 }
 
 /**

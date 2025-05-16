@@ -114,6 +114,11 @@ export type SubscriptionMeta = {
   cacheKeys?: Set<string>;
 };
 
+export interface PathNode {
+  parent: PathNode | null;
+  key: PropertyKey;
+}
+
 /**
  * Internal symbol-branded type for path tracking.
  * @template FinalType - Value type at path.
@@ -122,7 +127,7 @@ export type SubscriptionMeta = {
 export type PathTracker<FinalType, Path extends PropertyKey[]> = {
   [BRAND_SYMBOL]: "PathTracker";
   [TYPE_SYMBOL]: FinalType;
-  [PATH_SYMBOL]: Path;
+  [PATH_SYMBOL]: PathNode;
 };
 
 /**
@@ -217,14 +222,28 @@ export interface ObservableStore<T> {
   /**
    * Update a value at path or via updater function.
    * @param path - Path tracker identifying the property.
-   * @param value - New value or updater function receiving current value.
+   * @param valueOrFn - New value or updater function receiving current value.
    */
   update<P extends PathTracker<any, any>>(
     path: P,
-    value:
+    valueOrFn:
       | P[typeof TYPE_SYMBOL]
       | ((cur: P[typeof TYPE_SYMBOL]) => P[typeof TYPE_SYMBOL])
   ): void;
+
+  /**
+   * Compute the next value for a given path, handling both direct values
+   * and updater functions.
+   * @param path - Path tracker identifying the property.
+   * @param valueOrFn - New value or updater function receiving the current value.
+   * @returns The resolved new value that would be applied.
+   */
+  resolveValue<P extends PathTracker<any, any>>(
+    path: P,
+    valueOrFn:
+      | P[typeof TYPE_SYMBOL]
+      | ((cur: P[typeof TYPE_SYMBOL]) => P[typeof TYPE_SYMBOL])
+  ): P[typeof TYPE_SYMBOL];
 
   /**
    * Cancel in-flight async updates.
@@ -271,11 +290,6 @@ export interface ObservableStore<T> {
    * @param pathProxy - Path tracker identifying the property.
    */
   redo(pathProxy: PathTracker<any, any>): void;
-
-  /**
-   * Cleanup unused history entries.
-   */
-  manualCleanup(): void;
 
   /**
    * Retrieve store memory and subscription stats.

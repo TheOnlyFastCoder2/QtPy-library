@@ -22,14 +22,29 @@ class HistoryManager {
   push(path: string, prevValue: any) {
     const hist = this.history.get(path) || [];
     let idx = this.index.get(path) ?? -1;
-    if (idx + 1 < hist.length) hist.splice(idx + 1);
+
+    // при откате обрезаем «будущую» ветку
+    if (idx + 1 < hist.length) {
+      hist.splice(idx + 1);
+    }
+
     hist.push(prevValue);
-    if (hist.length > this.maxLength) hist.shift();
-    idx = hist.length - 1;
+
+    // ленивое обрезание самого старого, если вышли за maxLength
+    if (hist.length > this.maxLength) {
+      hist.shift();
+      idx = hist.length - 1;
+    } else {
+      idx = hist.length - 1;
+    }
+
     this.history.set(path, hist);
     this.index.set(path, idx);
   }
-
+  clear(path: string) {
+    this.history.delete(path);
+    this.index.delete(path);
+  }
   undo(path: string) {
     const hist = this.history.get(path);
     let idx = this.index.get(path) ?? -1;
@@ -47,7 +62,6 @@ class HistoryManager {
     this.index.set(path, idx);
     return value;
   }
-
   // Remove history entries for paths not in the provided set
   pruneUnused(usedPaths: Set<string>) {
     for (const path of Array.from(this.history.keys())) {
@@ -57,7 +71,6 @@ class HistoryManager {
       }
     }
   }
-
   getEntries() {
     return Array.from(this.history.entries()).map(([path, h]) => ({
       path,
@@ -69,18 +82,21 @@ class HistoryManager {
 export function createObservableStore<T extends object>(
   initialState: T,
   middlewares: Middleware<T>[] = [],
-  options: { maxHistoryLength?: number; cleanupInterval?: number } = {}
+  options: { maxHistoryLength?: number } = {}
 ): ObservableStore<T> {
-  const { maxHistoryLength = Infinity, cleanupInterval = 5000 } = options;
+  const { maxHistoryLength = Infinity } = options;
   let rawState = { ...initialState };
 
   // === Batching infrastructure ===
   let batching = false;
-  const pendingStack: Map<string, any>[] = [];
+  let cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  let currentSubscriberMeta: SubscriptionMeta | null = null;
 
+  const pendingStack: Map<string, any>[] = [];
   const subscribers = new Set<Subscriber<T>>();
-  const pathSubscribers = new Map<string, Set<Subscriber<any>>>();
+  const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
   const aborters = new Map<string, AbortController>();
+  const proxyCache = new WeakMap<object, Map<string, any>>();
 
   const historyMgr = new HistoryManager(maxHistoryLength);
   const { $, getProxyPath, getProxyFromStringPath } = createPathProxy<T>();
@@ -99,46 +115,98 @@ export function createObservableStore<T extends object>(
     obj[last] = val;
   };
 
-  // Core update logic extracted for reuse
-  function commit(pending: Map<string, any>) {
-    for (const [path, value] of pending) {
-      const oldVal = getRaw(path);
-      if (!shallowEqual(oldVal, value)) {
-        historyMgr.push(path, oldVal);
-        setRaw(path, value);
-        notifyPath(path, value);
-        notifyInvalidate(path);
-      }
-    }
-  }
-  // create reactive proxy for direct assignment
-  function createReactiveProxy(obj: any, basePath = ""): any {
-    return new Proxy(obj, {
-      get(target, prop) {
-        const key = String(prop);
-        const fullPath = basePath ? `${basePath}.${key}` : key;
+  function createReactiveProxy<T extends object>(
+    target: T,
+    parentFullPath: string = ""
+  ): T {
+    // если не объект или null — возвращаем “как есть”
+    if (typeof target !== "object" || target === null) return target;
 
+    // попробуем взять уже созданный прокси из кэша
+    let pathMap = proxyCache.get(target);
+    if (!pathMap) {
+      pathMap = new Map();
+      proxyCache.set(target, pathMap);
+    } else if (pathMap.has(parentFullPath)) {
+      return pathMap.get(parentFullPath);
+    }
+
+    // создаём новый прокси, “захватив” parentFullPath в замыкании
+    const proxy = new Proxy(target, {
+      get(target, prop, receiver) {
+        const key = propToString(prop);
+        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
+
+        // трекинг зависимости текущего подписчика
+        currentSubscriberMeta?.trackedPaths.add(fullPath);
+
+        // если сейчас в режиме batch и есть отложенное значение — возвращаем его
         if (batching && currentPending()?.has(fullPath)) {
           return currentPending()!.get(fullPath);
         }
 
-        const cur = getRaw(fullPath);
-        return cur !== null && typeof cur === "object"
-          ? createReactiveProxy(cur, fullPath)
-          : cur;
+        // читаем “сырое” значение
+        const rawValue = Reflect.get(target, prop, receiver);
+
+        // защита от циклических ссылок
+        if (rawValue === target) return receiver;
+
+        // если это вложенный объект — рекурсивно проксируем
+        if (rawValue !== null && typeof rawValue === "object") {
+          return createReactiveProxy(rawValue, fullPath);
+        }
+
+        return rawValue;
       },
-      set(_, prop, value) {
-        const key = String(prop);
-        const fullPath = basePath ? `${basePath}.${key}` : key;
+
+      set(target, prop, value, receiver) {
+        const key = propToString(prop);
+        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
+
+        // оптимизация: если значение не изменилось — выходим
+        const oldValue = Reflect.get(target, prop, receiver);
+        if (Object.is(oldValue, value)) return true;
         if (batching) {
           currentPending()!.set(fullPath, value);
         } else {
-          store.update(getProxyFromStringPath(fullPath), value);
+          doUpdate(fullPath, value);
         }
         return true;
       },
+
+      deleteProperty(target, prop) {
+        const key = propToString(prop);
+        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
+
+        const success = Reflect.deleteProperty(target, prop);
+        if (success) store.update(fullPath, undefined);
+        return success;
+      },
+
+      ownKeys(target) {
+        // при итерации по ключам тоже трекингим все вложенные пути
+        if (currentSubscriberMeta) {
+          const prefix = parentFullPath ? `${parentFullPath}.` : "";
+          for (const key of Reflect.ownKeys(target)) {
+            currentSubscriberMeta.trackedPaths.add(
+              `${prefix}${propToString(key)}`
+            );
+          }
+        }
+        return Reflect.ownKeys(target);
+      },
     });
+
+    // сохраняем в кэше и возвращаем
+    pathMap.set(parentFullPath, proxy);
+    return proxy;
   }
+
+  // Оптимизированное преобразование свойств
+  const propToString = (prop: string | symbol): string =>
+    typeof prop === "symbol"
+      ? Symbol.keyFor(prop) || prop.toString()
+      : String(prop);
 
   // placeholder for store
   const store: any = {};
@@ -149,11 +217,23 @@ export function createObservableStore<T extends object>(
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
-      if (!meta.cacheKeys || meta.cacheKeys.has(normalizedKey)) sub(stateProxy);
+      if (!meta.cacheKeys || meta.cacheKeys.has(normalizedKey)) {
+        currentSubscriberMeta = meta;
+        try {
+          sub(stateProxy);
+        } finally {
+          currentSubscriberMeta = null;
+        }
+      }
     });
   }
   const notifyPath = (path: string, val: any) =>
     pathSubscribers.get(path)?.forEach((cb) => cb(val));
+
+  function performCleanup() {
+    const used = new Set<string>(pathSubscribers.keys());
+    historyMgr.pruneUnused(used);
+  }
 
   // core update logic
   const doUpdate = (path: string, newVal: any) => {
@@ -164,22 +244,39 @@ export function createObservableStore<T extends object>(
     notifyPath(path, newVal);
     notifyInvalidate(path);
   };
+  // Package Update Wrapper
+  function commit(pending: Map<string, any>) {
+    const changedPaths: string[] = [];
 
-  // cleanup unused history periodically
-  function performCleanup() {
-    const used = new Set<string>(pathSubscribers.keys());
-    historyMgr.pruneUnused(used);
-  }
-  if (cleanupInterval) {
-    setInterval(performCleanup, cleanupInterval);
+    for (const [path, value] of pending) {
+      const oldVal = getRaw(path);
+      if (!shallowEqual(oldVal, value)) {
+        historyMgr.push(path, oldVal);
+        setRaw(path, value);
+        notifyPath(path, value);
+        changedPaths.push(path);
+      }
+    }
+
+    if (changedPaths.length) {
+      subscribers.forEach((sub) => sub(stateProxy));
+    }
   }
 
-  // API methods
-  store.update = (pathProxy: any, value: any) => {
+  store.resolveValue = (pathProxy, valueOrFn) => {
     validatePath(pathProxy);
     const path = resolve(pathProxy);
     const old = getRaw(path);
-    const newVal = typeof value === "function" ? (value as any)(old) : value;
+    return typeof valueOrFn === "function"
+      ? (valueOrFn as (cur: any) => any)(old)
+      : valueOrFn;
+  };
+  // API methods
+  store.update = (pathProxy: any, valueOrFn: any) => {
+    validatePath(pathProxy);
+    const path = resolve(pathProxy);
+    const newVal = store.resolveValue(pathProxy, valueOrFn);
+
     if (batching) {
       currentPending()!.set(path, newVal);
     } else {
@@ -195,9 +292,20 @@ export function createObservableStore<T extends object>(
     validatePath(pathProxy);
     const pathStr = resolve(pathProxy);
     if (options.abortPrevious) {
-      aborters.get(pathStr)?.abort();
+      const prev = aborters.get(pathStr);
+      if (prev) {
+        prev.abort();
+        aborters.delete(pathStr);
+      }
     }
     const ctrl = new AbortController();
+    ctrl.signal.addEventListener(
+      "abort",
+      () => {
+        aborters.delete(pathStr);
+      },
+      { once: true }
+    );
     aborters.set(pathStr, ctrl);
     try {
       const old = getRaw(pathStr);
@@ -238,14 +346,25 @@ export function createObservableStore<T extends object>(
   store.undo = (p) => {
     validatePath(p);
     const path = resolve(p);
-    const v = historyMgr.undo(path);
-    if (v !== undefined) doUpdate(path, v);
+    const prevValue = historyMgr.undo(path);
+    if (prevValue !== undefined) {
+      doUpdate(path, prevValue);
+      return true;
+    }
+    console.warn(`No undo history for path: ${path}`);
+    return false;
   };
-  store.redo = (p) => {
+  store.redo = (p: any): boolean => {
     validatePath(p);
     const path = resolve(p);
-    const v = historyMgr.redo(path);
-    if (v !== undefined) doUpdate(path, v);
+    const nextValue = historyMgr.redo(path);
+    if (nextValue !== undefined) {
+      doUpdate(path, nextValue);
+      return true;
+    }
+    // No history to redo
+    console.warn(`No redo history for path: ${path}`);
+    return false;
   };
 
   store.subscribe = (cb: Subscriber<T>, keys?: CacheKey<T>[]) => {
@@ -265,6 +384,7 @@ export function createObservableStore<T extends object>(
     return () => {
       meta.active = false;
       subscribers.delete(wrap);
+      performCleanup();
     };
   };
 
@@ -277,10 +397,21 @@ export function createObservableStore<T extends object>(
     const { immediate = false } = opts;
     const path = resolve(pathProxy);
     const wrap = (v: any) => cb(v);
+
+    const meta: SubscriptionMeta = (wrap as any).__meta || {
+      active: true,
+      trackedPaths: new Set(),
+    };
+    meta.trackedPaths.add(path);
+    (wrap as any).__meta = meta;
+
     if (!pathSubscribers.has(path)) pathSubscribers.set(path, new Set());
     pathSubscribers.get(path)!.add(wrap);
     if (immediate) wrap(getRaw(path));
-    return () => pathSubscribers.get(path)!.delete(wrap);
+    return () => {
+      pathSubscribers.get(path)!.delete(wrap);
+      historyMgr.clear(path);
+    };
   };
 
   store.invalidate = (keyProxy: any) => {
@@ -289,14 +420,29 @@ export function createObservableStore<T extends object>(
   };
 
   store.cancelAsyncUpdates = (p?: any) => {
-    if (p) aborters.get(resolve(p))?.abort();
-    else aborters.forEach((c) => c.abort());
+    if (p) {
+      const key = resolve(p);
+      const ctrl = aborters.get(key);
+      if (ctrl) {
+        ctrl.abort();
+        aborters.delete(key);
+      }
+    } else {
+      aborters.forEach((c, key) => {
+        c.abort();
+        aborters.delete(key);
+      });
+    }
   };
 
   store.clearStore = () => {
     subscribers.clear();
     pathSubscribers.clear();
     aborters.clear();
+    if (cleanupTimer !== null) {
+      clearInterval(cleanupTimer);
+      cleanupTimer = null;
+    }
   };
 
   store.get = (p: any) => {
@@ -305,7 +451,7 @@ export function createObservableStore<T extends object>(
   };
 
   store.resolvePath = resolve;
-  store.manualCleanup = performCleanup;
+
   store.getMemoryStats = () => ({
     subscribersCount: subscribers.size,
     pathSubscribersCount: pathSubscribers.size,
@@ -314,11 +460,11 @@ export function createObservableStore<T extends object>(
   });
 
   // apply middlewares
-  let upd = store.update;
+  let wrappedUpdate = store.update;
   middlewares.reverse().forEach((mw) => {
-    upd = mw(store, upd);
+    wrappedUpdate = mw(store, wrappedUpdate);
   });
-  store.update = upd;
+  store.update = wrappedUpdate;
 
   return store as ObservableStore<T>;
 }
