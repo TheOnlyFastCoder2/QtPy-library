@@ -1,257 +1,361 @@
-# 🧩 Руководство по использованию `createReactStore`
+## Основная идея и архитектура
 
-💎 `createReactStore` — это мощная обёртка над `ObservableStore` с обширными возможностями реактивности, минимальным boilerplate и гибкими подписками.
+`createReactStore` — это обёртка над `ObservableStore`, адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет несколько удобных хуков:
 
-🔗 Подробнее: [npm @qtpy/state-management-observable](https://www.npmjs.com/package/@qtpy/state-management-observable)
+- **`useStore`** — подписка на массив путей (строк или Accessor-ов), возвращающая их текущие значения и обновляющая компонент при изменении.
+- **`useField`** — более узкий хук для работы с одним путём (string или Accessor), возвращающий `[value, setValue]`.
+- **`useStoreEffect`** — хук-аналог `useEffect`, но срабатывает при изменении значений по указанным путям.
+- **`reloadComponents`** — ручная инвалидизация cacheKeys (при необходимости форсировать перерисовку).
 
-## 📑 Содержание
+Под капотом:
 
-- 📦 [Свойства хранилища](#-свойства-хранилища)
-- 🔍 [Сигнатуры функций и описание](#-сигнатуры-функций-и-описание)
-- 🧩 [Пример: Игра 15-Puzzle](#-Пример-Игра-15-Puzzle-)
+1. Мы создаём `ObservableStore` из библиотеки `@qtpy/state-management-observable` с помощью `createObservableStore(initialState, middlewares, options)`.
+2. Затем оборачиваем его React-хуками, основанными на `useSyncExternalStore`, `useMemo`, `useCallback` и других стандартных реактивных инструментах React.
+3. Вся подписка происходит через массивы путей вида `Array<string | Accessor<any>>`. Это позволяет подписываться на любое вложенное поле или вычисляемое значение.
 
-  - 🎨 [Компонент плитки `Tile.tsx`](#-Компонент-плитки-tiletsx)
-  - 🎲 [Основной компонент `PuzzleGame.tsx`](#-Основной-компонент-PuzzleGametsx)
-
-- 🏁 [Итоги](#-итоги)
-
-## 📦 Свойства хранилища
-
-| Свойство | Тип            | Описание                                          |
-| -------- | -------------- | ------------------------------------------------- |
-| `state`  | `T`            | Прокси-объект для чтения и прямого присваивания.  |
-| `$`      | `PathProxy<T>` | Генератор “path trackers” для подписок и`update`. |
+Такой подход сохраняет всё преимущество «чистого» ядра `ObservableStore` (гибкие подписки с точностью до пути, middleware, batching, undo/redo и асинхронные обновления), при этом даёт знакомый интерфейс React-хуков и минимизирует boilerplate в компонентах.
 
 ---
 
-## 🔍 Сигнатуры функций и описание
-
-### 1. `store.get`
+## 1. Пример создания React-хранилища
 
 ```ts
-store.get(path: PathTracker<any, any>): any
-```
+// createReactStore.ts
+import {
+  useSyncExternalStore,
+  useMemo,
+  useRef,
+  useCallback,
+  useEffect,
+} from "react";
+import { createObservableStore } from "@qtpy/state-management-observable";
+import {
+  Accessor,
+  CacheKey,
+  Middleware,
+} from "@qtpy/state-management-observable/types";
+import { ReactStoreOptions, ReactStore, UseStoreReturnType } from "./types";
 
-**Описание:**
-Получение текущего значения по указанному пути. Возвращает `undefined`, если значение не найдено.
+export { createObservableStore };
 
-| Свойство       | Тип                     | Описание                                           |
-| -------------- | ----------------------- | -------------------------------------------------- |
-| `path`         | `PathTracker<any, any>` | Трассировщик пути к нужному полю состояния         |
-| **Возвращает** | `any`                   | Текущее значение по указанному пути или`undefined` |
+/**
+ * Создаёт ObservableStore и оборачивает его React-хуками
+ * @param initialState — начальное состояние
+ * @param middlewares — опциональный массив middleware
+ * @param options — опции history и т.п.
+ */
+export function createReactStore<T extends object>(
+  initialState: T,
+  middlewares: Middleware<T>[] = [],
+  options: ReactStoreOptions = {}
+): ReactStore<T> {
+  // 1) Создаём базовый store
+  const baseStore = createObservableStore(
+    initialState,
+    middlewares,
+    options as any
+  );
+  const store = baseStore as ReactStore<T>;
 
-**Пример использования:**
+  /**
+   * Хук для подписки на несколько путей в сторе
+   * @param paths — массив строк (пути) или Accessor-функций
+   * @param options.cacheKeys — дополнительные cacheKeys для фильтрации
+   * @returns массив значений по каждому из paths
+   */
+  function useStore<P extends Array<string | Accessor<any>>>(
+    paths: [...P],
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ): UseStoreReturnType<P> {
+    const cacheKeys = options?.cacheKeys ?? [];
 
-```ts
-const value = puzzleStore.get($board[0][0]);
-console.log(value); // 1
+    // Объединяем cacheKeys и пути для подписки
+    const keys = useMemo(() => [...cacheKeys, ...paths], [cacheKeys, paths]);
+
+    // Функция, возвращающая актуальные значения по paths
+    const getSnapshotRaw = useCallback(
+      () => paths.map((p) => store.get(p)) as UseStoreReturnType<P>,
+      [paths]
+    );
+
+    // Реф для хранение последнего снапшота
+    const snapshotRef = useRef<UseStoreReturnType<P>>(getSnapshotRaw());
+
+    // subscribe для useSyncExternalStore
+    const subscribe = useCallback(
+      (onStoreChange: () => void) => {
+        const unsubscribe = store.subscribe(() => {
+          const nextSnap = getSnapshotRaw();
+          const changed = nextSnap.some(
+            (v, i) => !Object.is(v, snapshotRef.current[i])
+          );
+          if (changed) {
+            snapshotRef.current = nextSnap;
+            onStoreChange();
+          }
+        }, keys);
+        return unsubscribe;
+      },
+      [getSnapshotRaw, keys]
+    );
+
+    const getSnapshot = useCallback(() => snapshotRef.current, []);
+    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  }
+
+  /**
+   * Хук для одного поля: возвращает [value, setValue]
+   * @param path — строка (например, "user.age") или Accessor
+   * @param options.cacheKeys — дополнительные cacheKeys
+   */
+  function useField<P extends string | Accessor<any>>(
+    path: P,
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ) {
+    const [value] = useStore([path], options as any);
+    const setValue = useCallback(
+      (newValue: P extends Accessor<infer V> ? V : unknown) => {
+        store.update(path, newValue as any);
+      },
+      [path]
+    );
+    return [value, setValue] as const;
+  }
+
+  /**
+   * Принудительная инвалидизация cacheKeys
+   * @param cacheKeys — массив cacheKey (строк или Accessor-ов)
+   */
+  function reloadComponents(cacheKeys: CacheKey<T>[]) {
+    cacheKeys.forEach((key) => store.invalidate(key));
+  }
+
+  /**
+   * Хук-эффект: срабатывает, когда хотя бы одно значение из paths поменялось
+   * @param paths — массив строк или Accessor-ов
+   * @param effect — функция, получающая массив текущих значений
+   * @param options.cacheKeys — дополнительные cacheKeys
+   */
+  function useStoreEffect<P extends Array<string | Accessor<any>>>(
+    paths: [...P],
+    effect: (values: UseStoreReturnType<P>) => void,
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ) {
+    const values = useStore(paths, options as any);
+    useEffect(() => {
+      effect(values);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effect, ...values]);
+  }
+
+  store.useStore = useStore;
+  store.useField = useField;
+  store.reloadComponents = reloadComponents;
+  store.useEffect = useStoreEffect;
+
+  return store;
+}
 ```
 
 ---
 
-### 2. `store.update`
+## 2. API `createReactStore`
+
+### 2.1. `store.get(path: string | Accessor<any>): any`
+
+Получает текущее значение из состояния по указанному пути (строка, например `"user.name"`) или по Accessor-функции. Если путь не найден, возвращает `undefined`.
 
 ```ts
-store.update(path: PathTracker<any, any>, value: any): void
-```
-
-**Описание:**
-Обновление значения по указанному пути. Если вызывается вне `batch`, сразу нотифицирует подписчиков.
-
-| Свойство       | Тип                     | Описание                                                     |
-| -------------- | ----------------------- | ------------------------------------------------------------ |
-| `path`         | `PathTracker<any, any>` | Путь к полю, которое нужно обновить                          |
-| `value`        | `any`                   | Новое значение                                               |
-| **Возвращает** | `void`                  | После обновления — уведомляет подписчиков (если не в`batch`) |
-
-**Пример использования:**
-
-```ts
-puzzleStore.update($moves, puzzleStore.get($moves)! + 1);
+const name = userStore.get("user.name");
+const firstItem = listStore.get(() => listStore.state.items[0]);
 ```
 
 ---
 
-### 3. `store.batch`
+### 2.2. `store.update(path: string | Accessor<any>, value: any | (cur:any)=>any): void`
+
+Синхронно обновляет значение по заданному пути/Accessor. Если передан колбэк `(cur)=>next`, вычисляет следующую версию. После применения вызываются middleware и нотифицируются подписчики (если не внутри `.batch()`).
 
 ```ts
-store.batch(callback: () => void): void
+userStore.update("user.age", 25);
+userStore.update("user.age", (cur) => cur + 1);
+userStore.state.user.name = "Eve"; // то же через Proxy
 ```
 
-**Описание:**
-Группировка нескольких вызовов `update` и прямых изменений `store.state` в одну реактивную итерацию, чтобы избежать лишних перерисовок.
+---
 
-| Свойство       | Тип          | Описание                                                              |
-| -------------- | ------------ | --------------------------------------------------------------------- |
-| `callback`     | `() => void` | Функция с набором изменений — несколько`update` и прямых присваиваний |
-| **Возвращает** | `void`       | Все уведомления подписчиков будут отложены до конца`batch`            |
+### 2.3. `store.batch(callback: () => void): void`
 
-**Пример использования:**
+Группирует несколько изменений внутри одного батча. Уведомления подписчикам откладываются до выхода из `callback`.
 
 ```ts
-puzzleStore.batch(() => {
-  puzzleStore.update($board[0][0], null);
-  puzzleStore.update($board[3][3], 1);
-  puzzleStore.state.moves += 1;
+store.batch(() => {
+  store.update("a", 1);
+  store.update("b", 2);
+  store.state.count += 1;
 });
 ```
 
 ---
 
-### 4. `store.asyncUpdate`
+### 2.4. `store.asyncUpdate(path, asyncUpdater, options?)`
 
-> **Назначение:**
-> Асинхронное обновление с опциональной отменой «устаревших» запросов. По умолчанию новые вызовы **не** отменяют предыдущие, но если передать `options.abortPrevious = true`, то при старте нового запроса предыдущий будет прерван через `AbortController`.
+Асинхронное обновление с возможностью отмены предыдущих запросов (через `AbortSignal`).
 
-### ⚙️ Сигнатура
-
-```ts
-asyncUpdate<P extends PathTracker<any, any>>(
-  path: P,
-  asyncUpdater: (
-    cur: P[typeof TYPE_SYMBOL],
-    signal: AbortSignal
-  ) => Promise<P[typeof TYPE_SYMBOL]>,
-  options?: {
-    /**
-     * Если `true`, то перед запуском этого обновления
-     * будет отменён (abort) любой ещё не завершившийся
-     * предыдущий запрос на том же `path`.
-     * По умолчанию — `false`.
-     */
-    abortPrevious?: boolean
-  }
-): Promise<void>;
-```
-
-### 📝 Описание
-
-- Передаёт в `asyncUpdater` текущий `cur` и `AbortSignal` для отмены.
-- **`options.abortPrevious`** = `true` прерывает незавершённые запросы по тому же пути; по умолчанию — `false`, все вызовы выполняются до конца.
-
-### ▶️ Пример
+- `path` — строка или Accessor.
+- `asyncUpdater(currentValue, signal): Promise<nextValue>`.
+- `options.abortPrevious?: boolean` (по умолчанию `false`).
 
 ```ts
-// Один вызов asyncUpdate без отмены предыдущего
 await store.asyncUpdate(
-  store.$.user.age,
-  async (currentAge, signal) => fetchAgeFromApi(signal),
+  "items",
+  async (cur, signal) => {
+    const response = await fetch("/api", { signal });
+    return response.json();
+  },
   { abortPrevious: true }
 );
 ```
 
 ---
 
-### 5. `store.reloadComponents`
+### 2.5. `store.cancelAsyncUpdates(path?: string | Accessor<any>): void`
+
+Отменяет все незавершённые `asyncUpdate`. Если указан `path`, отменяет только для этого пути, иначе — для всех.
 
 ```ts
-store.reloadComponents(cacheKeys: CacheKey<T>[]): void
-```
-
-**Описание:**
-Принудительная инвалидация подписчиков по переданным ключам или путям. Компоненты, использующие эти `cacheKeys`, будут перерендерены.
-
-| Свойство       | Тип             | Описание                                                                  |
-| -------------- | --------------- | ------------------------------------------------------------------------- |
-| `cacheKeys`    | `CacheKey<T>[]` | Массив ключей или путей для ручной инвалидации подписок                   |
-| **Возвращает** | `void`          | Принудительно перерисовывает компоненты, использующие указанные cacheKeys |
-
-**Пример использования:**
-
-```ts
-puzzleStore.reloadComponents([$board, $moves]);
+store.cancelAsyncUpdates(); // отменить все
+store.cancelAsyncUpdates("items"); // отменить только для "items"
 ```
 
 ---
 
-### 6. `store.useStore`
+### 2.6. `store.reloadComponents(cacheKeys: Array<string | Accessor<any>>): void`
+
+Инвалидирует указанные `cacheKeys`, чтобы все подписчики, передавшие эти ключи при подписке, получили уведомление и обновили компонент.
 
 ```ts
-store.useStore(
-  paths: PathTracker<any, any>[],
-  options?: { cacheKeys?: CacheKey<T>[] }
-): any[]
+store.reloadComponents(["user.preferences.theme"]);
 ```
 
-**Описание:**
-React-хук для подписки на массив путей. При изменении любого из путей или указанных `cacheKeys` хук инициирует ререндер компонента, возвращая массив текущих значений.
+---
 
-| Свойство       | Тип                             | Описание                                                           |
-| -------------- | ------------------------------- | ------------------------------------------------------------------ |
-| `paths`        | `PathTracker<any, any>[]`       | Массив путей для подписки                                          |
-| `options`      | `{ cacheKeys?: CacheKey<T>[] }` | Опционально: дополнительные ключи для фильтрации подписок          |
-| **Возвращает** | `any[]`                         | Массив текущих значений по каждому пути; обновляется при изменении |
+### 2.7. `store.useStore(paths: Array<string | Accessor<any>>, options?): any[]`
 
-**Пример использования:**
+**React-хук.**
+
+- `paths: Array<string | Accessor<any>>` — список путей (например, `["user.name", "user.age"]` или `[()=>state.count, "todos.length"]`).
+- `options.cacheKeys?: Array<string | Accessor<any>>` — дополнительные ключи кеша.
+
+Возвращает массив текущих значений для каждого из путей. Компонент ререндерится, если хотя бы одно значение изменилось (или был вызван `reloadComponents` для одного из cacheKeys).
 
 ```tsx
-const [moves, isSolved] = puzzleStore.useStore([$moves, $isSolved], {
-  cacheKeys: [$board],
+const [name, age] = userStore.useStore(["user.name", "user.age"]);
+```
+
+---
+
+### 2.8. `store.useField(path: string | Accessor<any>, options?): [value, setValue]`
+
+**React-хук.**
+
+- `path: string | Accessor<any>` — один путь.
+- `options.cacheKeys?: Array<string | Accessor<any>>`.
+
+Возвращает кортеж `[value, setValue]`, где `value` — текущее значение, а `setValue` — функция для его обновления (`store.update(path, newValue)`).
+
+```tsx
+const [count, setCount] = counterStore.useField("counter.value");
+setCount((c) => c + 1);
+```
+
+---
+
+### 2.9. `store.useEffect(paths: Array<string | Accessor<any>>, effect, options?)`
+
+**React-хуковый аналог `useEffect`,** который вызывается, когда хотя бы одно из значений по `paths` меняется (или срабатывает `reloadComponents` по cacheKey).
+
+```tsx
+counterStore.useEffect(["counter.value"], ([current]) => {
+  console.log("Counter changed to", current);
 });
 ```
 
 ---
 
-### 7. `store.useField`
+## 3. Пример использования хуков
+
+Допустим, у нас есть простой стор:
 
 ```ts
-store.useField(
-  path: PathTracker<any, any>,
-  options?: { cacheKeys?: CacheKey<T>[] }
-): [value: any, setValue: (v: any) => void]
+type UserState = {
+  user: { name: string; age: number };
+  online: boolean;
+};
+
+export const userStore = createReactStore<UserState>({
+  user: { name: "Alice", age: 30 },
+  online: false,
+});
 ```
 
-**Описание:**
-Удобный React-хук для одного пути. Возвращает кортеж — текущее значение и функцию для его обновления.
-
-| Свойство       | Тип                             | Описание                                                  |
-| -------------- | ------------------------------- | --------------------------------------------------------- |
-| `path`         | `PathTracker<any, any>`         | Путь к одиночному полю состояния                          |
-| `options`      | `{ cacheKeys?: CacheKey<T>[] }` | Опционально: дополнительные ключи для фильтрации подписок |
-| **Возвращает** | `[any, (v: any) => void]`       | Кортеж: текущее значение и функция для его обновления     |
-
-**Пример использования:**
+И в каком-то компоненте мы хотим подписаться на `user.name` и `online`:
 
 ```tsx
-const [moves, setMoves] = puzzleStore.useField($moves);
-setMoves((m) => m + 1);
+import React from "react";
+import { userStore } from "./userStore";
+
+export const Profile: React.FC = () => {
+  // Берём одновременно user.name и online
+  const [name, isOnline] = userStore.useStore(["user.name", "online"]);
+
+  // Подписываемся только на user.age
+  const [age, setAge] = userStore.useField("user.age");
+
+  // Хук-эффект: срабатывает, когда возраст меняется
+  userStore.useEffect(["user.age"], ([currentAge]) => {
+    console.log("Новый возраст пользователя:", currentAge);
+  });
+
+  return (
+    <div>
+      <h2>
+        {name} {isOnline ? "🟢" : "🔴"}
+      </h2>
+      <p>Возраст: {age}</p>
+      <button onClick={() => setAge((a) => a + 1)}>Увеличить возраст</button>
+    </div>
+  );
+};
 ```
+
+Здесь:
+
+- При изменении `user.name` или `online` компонент сразу ререндерится.
+- Хук `useField("user.age")` даёт `age` и `setAge` (обновление через `store.update("user.age", newAge)`).
+- `useEffect(["user.age"], callback)` будет вызываться при каждом изменении возраста.
 
 ---
 
-### 8. Опция `cacheKeys` в `subscribe`, `useStore`, `useField`
+## 4. Реализация игры 15-Puzzle
 
-```ts
-// Пример использования cacheKeys
-const [board] = puzzleStore.useStore([$board], {
-  cacheKeys: [() => "custom-key"],
-});
-// ... в другом месте:
-puzzleStore.reloadComponents(["custom-key"]);
-```
-
-**Описание:**
-Массив дополнительных ключей (или путей) для фильтрации подписок. Подписчик получит уведомление при изменении основного пути или при инвалидации по любому из `cacheKeys`.
+Ниже приведён полный пример игры «15-Puzzle», построенной на `createReactStore`. Все пути задаются строками вида `"board.0.0"`, но мы можем также использовать Accessor-функции.
 
 ---
 
-## 🧩 Пример: Игра 15-Puzzle 🚀💡
-
-Ниже показан один файл `store.ts`, где объединены инициализация хранилища и вся логика игры:
+### 4.1. Инициализация хранилища и логика
 
 ```ts
 // store.ts
 import { createReactStore } from "@qtpy/state-management-react";
 
-// Описание состояния головоломки
 export type PuzzleState = {
   board: (number | null)[][]; // 4×4 поле
   moves: number; // счётчик ходов
-  isSolved: boolean; // флаг "решена ли"
+  isSolved: boolean; // флаг «решена ли»
 };
 
-// Создаём реактивное хранилище
-export const puzzleStore = createReactStore<PuzzleState>({
+export const { $, state, ...puzzleStore } = createReactStore<PuzzleState>({
   board: [
     [1, 2, 3, 4],
     [5, 6, 7, 8],
@@ -262,19 +366,8 @@ export const puzzleStore = createReactStore<PuzzleState>({
   isSolved: false,
 });
 
-// Удобные прокси для путей
-export const $board = puzzleStore.$.board;
-export const $moves = puzzleStore.$.moves;
-export const $isSolved = puzzleStore.$.isSolved;
-
-// ------------------------------
-// Функции с логикой игры
-// ------------------------------
-
-type Board = (number | null)[][];
-
 /** Проверка, решена ли головоломка */
-export const checkSolved = (board: Board): boolean => {
+export const checkSolved = (board: (number | null)[][]): boolean => {
   const flat = board.flat();
   for (let i = 0; i < flat.length - 1; i++) {
     if (flat[i] !== i + 1) return false;
@@ -283,15 +376,15 @@ export const checkSolved = (board: Board): boolean => {
 };
 
 /** Поиск координат пустой ячейки */
-export const findEmptyTile = (board: Board) => {
-  for (let row = 0; row < board.length; row++) {
-    for (let col = 0; col < board[row].length; col++) {
-      if (board[row][col] === null) {
-        return { row, col };
+export const findEmptyTile = (board: (number | null)[][]) => {
+  for (let r = 0; r < board.length; r++) {
+    for (let c = 0; c < board[r].length; c++) {
+      if (board[r][c] === null) {
+        return { row: r, col: c };
       }
     }
   }
-  throw new Error("No empty tile found");
+  throw new Error("Пустая ячейка не найдена");
 };
 
 /** Проверка возможности перемещения плитки */
@@ -308,56 +401,61 @@ export const canMoveTile = (
 
 /** Сдвиг плитки и обновление состояния */
 export const moveTile = (row: number, col: number) => {
-  const board = puzzleStore.get($board)!;
+  const board = puzzleStore.get("board")!;
   const empty = findEmptyTile(board);
   if (!canMoveTile(row, col, empty)) return;
 
   puzzleStore.batch(() => {
-    // Увеличиваем счётчик ходов
-    puzzleStore.state.moves += 1;
+    // 1) Увеличиваем счётчик
+    $.moves += 1; // или state.moves += 1;
 
-    // Меняем местами значения в board
+    // 2) Меняем местами значения в board
     const tileValue = board[row][col]!;
-    puzzleStore.update($board[row][col], null);
-    puzzleStore.update($board[empty.row][empty.col], tileValue);
+    puzzleStore.update(`board.${row}.${col}`, null);
+    puzzleStore.update(`board.${empty.row}.${empty.col}`, tileValue);
 
-    // Проверяем, решена ли головоломка
-    const newBoard = puzzleStore.get($board)!;
-    puzzleStore.update($isSolved, checkSolved(newBoard));
+    // 3) Проверяем, решена ли головоломка
+    const newBoard = puzzleStore.get(() => $.board)!;
+    puzzleStore.update(() => $.isSolved, checkSolved(newBoard));
   });
 };
 
 /** Перемешивание плиток */
 export const shuffleTiles = () => {
   puzzleStore.batch(() => {
-    const flat = puzzleStore.get($board)!.flat();
-    const shuffled = flat.sort(() => Math.random() - 0.5);
+    const flat = puzzleStore.get("board")!.flat();
+    const shuffled = [...flat].sort(() => Math.random() - 0.5);
 
     // Собираем новое поле 4×4
-    const newBoard: Board = [];
+    const newBoard: (number | null)[][] = [];
     shuffled.forEach((val, i) => {
       const r = Math.floor(i / 4);
       if (!newBoard[r]) newBoard[r] = [];
       newBoard[r][i % 4] = val;
     });
 
-    puzzleStore.update($board, newBoard);
-    puzzleStore.update($moves, 0);
-    puzzleStore.update($isSolved, false);
+    puzzleStore.update("board", newBoard);
+    puzzleStore.update("moves", 0);
+    puzzleStore.update("isSolved", false);
   });
 };
 ```
 
-### 🎨 Компонент плитки `Tile.tsx`
+---
+
+### 4.2. Компонент плитки `Tile.tsx`
 
 ```tsx
 // Tile.tsx
 import { memo } from "react";
-import { $board, $isSolved, moveTile, puzzleStore } from "./store";
+import { puzzleStore, $, moveTile } from "./store";
 
 export const Tile = memo(({ row, col }: { row: number; col: number }) => {
-  const [value] = puzzleStore.useStore([$board[row][col]]);
-  const [isSolved] = puzzleStore.useField($isSolved);
+  // Подписываемся только на эту ячейку
+
+  const [value] = puzzleStore.useStore([`board.${row}.${col}`]);
+  // Подписываемся на флаг решения
+  const [isSolved] = puzzleStore.useField(() => $.isSolved);
 
   return (
     <button
@@ -371,15 +469,22 @@ export const Tile = memo(({ row, col }: { row: number; col: number }) => {
 });
 ```
 
-### 🎲 Основной компонент `PuzzleGame.tsx`
+- `useStore([`board.${row}.${col}`])` — подписка на конкретное поле `board.${row}.${col}`.
+- `useField(() => $.isSolved)` — кортеж `[isSolved, setSolved]`, но мы здесь только читаем и отключаем кнопку, если головоломка решена.
+
+---
+
+### 4.3. Основной компонент `PuzzleGame.tsx`
 
 ```tsx
 // PuzzleGame.tsx
-import { $isSolved, $moves, puzzleStore, shuffleTiles } from "./store";
+import React from "react";
+import { puzzleStore, shuffleTiles } from "./store";
 import { Tile } from "./Tile";
-
-export const PuzzleGame = () => {
-  const [moves, isSolved] = puzzleStore.useStore([$moves, $isSolved]);
+import "./styles.css";
+export const PuzzleGame: React.FC = () => {
+  // Подписываемся сразу на два значения: number of moves и флаг isSolved
+  const [moves, isSolved] = puzzleStore.useStore(["moves", "isSolved"]);
 
   return (
     <div className="puzzle-game">
@@ -388,7 +493,9 @@ export const PuzzleGame = () => {
         <button onClick={shuffleTiles}>Shuffle</button>
         <span>Moves: {moves}</span>
       </div>
-      {isSolved && <div className="victory">You won! 🎉</div>}
+
+      {isSolved && <div className="victory">🎉 You won!</div>}
+
       <div className="board">
         {Array.from({ length: 4 }).map((_, row) => (
           <div key={row} className="row">
@@ -403,9 +510,26 @@ export const PuzzleGame = () => {
 };
 ```
 
-## 🏁 Итоги
+- При нажатии на кнопку `Shuffle` вызывается `shuffleTiles`, который перемешивает поле и сбрасывает счётчики.
+- Каждый `<Tile>` рендерится отдельно и следит только за своим полем и флагом `isSolved`.
 
-- **Минимальная связка**: `createReactStore` вкупе с `store.$`, `useStore`, `useField` и `batch` позволяет быстро и гибко работать с состоянием.
-- **Гранулярная реактивность**: компоненты подписываются только на необходимые пути, что минимизирует лишние обновления.
-- **Поддержка асинхрона**: `asyncUpdate` с отменой через `AbortSignal` делает работу с данными из сети удобной.
-- **Инвалидация через cacheKeys**: ручная или автоматическая фильтрация вызовов подписчиков для оптимизации.
+---
+
+## Итоги
+
+1. **Структура**. Мы создали `createReactStore`, используем массивы строк `string` или функций `Accessor<any>`.
+2. **Хуки**.
+
+   - `useStore(paths, { cacheKeys? })` — подписка на несколько полей.
+   - `useField(path, { cacheKeys? })` — подписка на одно поле с функцией для обновления.
+   - `useStoreEffect(paths, effect, { cacheKeys? })` — как `useEffect`, но срабатывает при изменении списка путей.
+   - `reloadComponents(cacheKeys)` — вручную инвалидирует подписки по переданным ключам.
+
+3. **Игра 15-Puzzle** демонстрирует:
+
+   - Как описать тип состояния и инициализировать его.
+   - Как подписать компонент плитки только на нужное поле.
+   - Как подписать главный компонент сразу на несколько значений.
+   - Как использовать `batch` для групповых обновлений, чтобы минимизировать ререндеры.
+
+Таким образом, `createReactStore` предоставляет полный набор реактивных инструментов для построения динамических React-приложений с минимальным количеством шаблонного кода.

@@ -1,27 +1,25 @@
-/**
- * Symbol used to brand the PathTracker type.
- */
-const BRAND_SYMBOL = Symbol("__brand");
+// types.tsx
 
 /**
- * Symbol representing the value type held by a PathTracker.
+ * Тип функции-доступа (Accessor), возвращающей значение из состояния.
+ * Например: () => state.user.name
  */
-const TYPE_SYMBOL = Symbol("__type");
+export type Accessor<T> = () => T;
 
 /**
- * Symbol representing the path tuple of a PathTracker.
- */
-const PATH_SYMBOL = Symbol("__path");
-
-/**
- * Primitive value types supported by the store.
+ * Примитивные типы значений, поддерживаемые хранилищем.
  */
 export type Primitive = string | number | boolean | symbol | null | undefined;
 
 /**
- * Cache key for filtering invalidation or subscriptions.
- * Can be a literal, selector function, or path tracker.
- * @template T - Root state type.
+ * Cache key для фильтрации уведомлений или инвалидации.
+ * Может быть:
+ * - строкой (dot-notation или любая другая),
+ * - числом / булевым / null / undefined,
+ * - стрелочной функцией, принимающей state и возвращающей строку,
+ * - или массивом из предыдущих вариантов (будет склеен через точку).
+ *
+ * Пример: ["user", () => state.settings.locale, "profile"]
  */
 export type CacheKey<T> =
   | string
@@ -30,47 +28,33 @@ export type CacheKey<T> =
   | null
   | undefined
   | ((store: T) => string)
-  | PathTracker<any, any>;
+  | Array<CacheKey<T>>;
 
 /**
- * Callback invoked when a value changes.
- * @template T - Value type.
- * @param value - New value at the subscribed path or store.
+ * Колбэк для подписки на изменения.
+ * @template T - Тип данных, передаваемых в колбэк.
  */
 export type Subscriber<T> = (value: T) => void;
 
 /**
- * Function to unsubscribe from updates.
+ * Функция для отписки.
  */
 export type Unsubscribe = () => void;
 
 /**
- * Internal function signature for applying updates.
- * @template T - Root state type.
- * @param path - Path or proxy identifying the property to update.
- * @param value - New value to set at the path.
+ * Сигнатура функции обновления хранилища.
+ * Принимает путь (строка или Accessor) и новое значение.
  */
-export type UpdateFunction<T> = (path: any, value: any) => void;
+export type UpdateFunction<T> = (
+  path: string | Accessor<any>,
+  value: any
+) => void;
 
 /**
- * Handler for path-based subscriptions.
- */
-export type SubscriptionHandler = {
-  /**
-   * Callback invoked on value change.
-   * @param value - New value at the subscribed path.
-   */
-  callback: (value: any) => void;
-  /** Optional path string for path subscriptions. */
-  path?: string;
-};
-
-/**
- * Middleware wrapping the store's update function.
- * @template T - Root state type.
- * @param store - Observable store instance.
- * @param next - Next update function in the middleware chain.
- * @returns Wrapped update function.
+ * Интерфейс middleware (промежуточной обёртки) для update-функции.
+ * Позволяет перехватывать вызовы store.update.
+ *
+ * @template T - Тип корневого состояния.
  */
 export type Middleware<T> = (
   store: ObservableStore<T>,
@@ -78,227 +62,150 @@ export type Middleware<T> = (
 ) => UpdateFunction<T>;
 
 /**
- * Proxy type for building and tracking state paths.
- * @template T - Subtree type.
- * @template Path - Accumulated key path as tuple.
- */
-export type PathProxy<T, Path extends PropertyKey[] = []> = {
-  [K in keyof T]-?: T[K] extends Primitive
-    ? PathTracker<T[K], [...Path, K]>
-    : PathProxy<T[K], [...Path, K]> & PathTracker<T[K], [...Path, K]>;
-} & PathTracker<T, Path>;
-
-/**
- * Memory usage statistics for the store.
+ * Статистика использования памяти и подписок в хранилище.
  */
 export type MemoryStats = {
-  /** Number of global subscribers. */
+  /** Количество глобальных подписчиков (subscribe). */
   subscribersCount: number;
-  /** Number of path-specific subscribers. */
+  /** Количество подписок на конкретные пути (subscribeToPath). */
   pathSubscribersCount: number;
-  /** History entries per path. */
+  /** Список записей истории: для каждого пути длина истории. */
   historyEntries: Array<{ path: string; length: number }>;
-  /** Count of active tracked paths. */
+  /** Количество активных путей, на которые подписались. */
   activePathsCount: number;
 };
 
 /**
- * Metadata for active subscriptions.
+ * Мета-данные для подписки.
  */
 export type SubscriptionMeta = {
-  /** Whether subscription is active. */
+  /** Активна ли подписка. */
   active: boolean;
-  /** Set of paths tracked by this subscription. */
+  /** Сет строковых путей, отслеживаемых подпиской. */
   trackedPaths: Set<string>;
-  /** Optional set of cache keys used for filtering. */
+  /** Необязательный набор нормализованных cacheKeys для фильтрации. */
   cacheKeys?: Set<string>;
 };
 
-export interface PathNode {
-  parent: PathNode | null;
-  key: PropertyKey;
-}
-
 /**
- * Internal symbol-branded type for path tracking.
- * @template FinalType - Value type at path.
- * @template Path - Tuple of path segments.
- */
-export type PathTracker<FinalType, Path extends PropertyKey[]> = {
-  [BRAND_SYMBOL]: "PathTracker";
-  [TYPE_SYMBOL]: FinalType;
-  [PATH_SYMBOL]: PathNode;
-};
-
-/**
- * Union of all nested key strings for an object.
- * @template T - Object type.
- */
-export type DeepKeyOf<T> = T extends object
-  ? {
-      [K in keyof T]: K extends string
-        ? T[K] extends object
-          ? `${K}` | `${K}.${DeepKeyOf<T[K]>}`
-          : `${K}`
-        : never;
-    }[keyof T]
-  : never;
-
-/**
- * Lookup of a nested property type by its dot-path.
- * @template T - Object type.
- * @template K - Dot-separated key string.
- */
-export type DeepType<T, K extends string> = K extends `${infer P}.${infer S}`
-  ? P extends keyof T
-    ? DeepType<T[P], S>
-    : never
-  : K extends keyof T
-  ? T[K]
-  : never;
-
-/**
- * Split dot-path string into tuple of keys.
- * @template K - Dot-separated key string.
- */
-export type SplitPath<K extends string> = K extends `${infer P}.${infer S}`
-  ? [P, ...SplitPath<S>]
-  : [K];
-
-/**
- * Reactive store interface with subscriptions and history.
- * @template T - Root state object type.
+ * Основной интерфейс ObservableStore.
+ *
+ * @template T - Тип корневого объекта состояния.
  */
 export interface ObservableStore<T> {
-  /** Current state snapshot. */
-  state: T;
-  /** Proxy for building path references. */
-  readonly $: PathProxy<T>;
-
+  /** Текущее «прокси»-состояние (stateProxy). */
+  readonly state: T;
+  readonly $: T;
   /**
-   * Convert a path proxy or string into a dot-path string.
-   * @param proxyPath - Path tracker or string to resolve.
-   * @returns Dot-separated string representation of the path.
-   */
-  resolvePath(proxyPath: PathTracker<any, any> | string): string;
-
-  /**
-   * Subscribe to all state changes with optional cache key filtering.
-   * @param callback - Invoked on every store update.
-   * @param cacheKeys - Optional array of cache keys to filter notifications.
-   * @returns Function to unsubscribe.
+   * Подписаться на любые изменения всего state с необязательной фильтрацией по cacheKeys.
+   * @param callback - Функция, вызываемая при каждом обновлении.
+   * @param cacheKeys - Опциональный массив ключей кэша для фильтрации уведомлений.
+   * @returns Функцию для отписки.
    */
   subscribe(callback: Subscriber<T>, cacheKeys?: CacheKey<T>[]): Unsubscribe;
 
   /**
-   * Subscribe to changes on specific path.
-   * @param path - Path tracker identifying the property.
-   * @param callback - Invoked on value change at the path.
-   * @param options.immediate - If true, invoke immediately with current value.
-   * @param options.cacheKeys - Optional cache keys to further filter.
-   * @returns Function to unsubscribe.
+   * Подписаться на изменения конкретного пути в state.
+   * @param pathOrAccessor - Либо строка `"user.profile.name"`, либо Accessor, возвращающий это значение.
+   * @param callback - Функция, вызываемая при изменении значения по этому пути.
+   * @param options.immediate - Если true, сразу же вызвать callback с текущим значением.
+   * @param options.cacheKeys - Опциональные ключи кэша для дополнительной фильтрации.
+   * @returns Функцию для отписки.
    */
-  subscribeToPath<P extends PathTracker<any, any>>(
-    path: P,
-    callback: Subscriber<P>,
+  subscribeToPath(
+    pathOrAccessor: string | Accessor<any>,
+    callback: Subscriber<any>,
     options?: { immediate?: boolean; cacheKeys?: CacheKey<T>[] }
   ): Unsubscribe;
 
   /**
-   * Trigger cache invalidation for a key.
-   * @param cacheKey - Key to invalidate.
+   * Инвалидировать указанный cacheKey (trigger cache invalidation).
+   * Все global-подписчики, у которых cacheKeys содержат этот нормализованный ключ, получат уведомление.
+   *
+   * @param cacheKey - Литерал, стрелочная функция или массив этих типов.
    */
   invalidate(cacheKey: CacheKey<T>): void;
 
   /**
-   * Retrieve the current value at path.
-   * @param path - Path tracker identifying the property.
-   * @returns Current value or undefined if not found.
+   * Получить текущее значение по пути.
+   * @param pathOrAccessor - Либо строка `"user.settings.theme"`, либо Accessor, возвращающий это значение.
+   * @returns Текущее значение или undefined, если путь не существует.
    */
-  get<P extends PathTracker<any, any>>(
-    path: P
-  ): P[typeof TYPE_SYMBOL] | undefined;
+  get(pathOrAccessor: string | Accessor<any>): any | undefined;
 
   /**
-   * Update a value at path or via updater function.
-   * @param path - Path tracker identifying the property.
-   * @param valueOrFn - New value or updater function receiving current value.
+   * Обновить значение по пути или через функцию-обновитель.
+   *
+   * @param pathOrAccessor - Либо строка `"user.age"`, либо Accessor, возвращающий текущее значение.
+   * @param valueOrFn - Либо новое значение, либо функция `(cur) => новоеЗначение`.
    */
-  update<P extends PathTracker<any, any>>(
-    path: P,
-    valueOrFn:
-      | P[typeof TYPE_SYMBOL]
-      | ((cur: P[typeof TYPE_SYMBOL]) => P[typeof TYPE_SYMBOL])
+  update(
+    pathOrAccessor: string | Accessor<any>,
+    valueOrFn: any | ((cur: any) => any)
   ): void;
 
   /**
-   * Compute the next value for a given path, handling both direct values
-   * and updater functions.
-   * @param path - Path tracker identifying the property.
-   * @param valueOrFn - New value or updater function receiving the current value.
-   * @returns The resolved new value that would be applied.
-   */
-  resolveValue<P extends PathTracker<any, any>>(
-    path: P,
-    valueOrFn:
-      | P[typeof TYPE_SYMBOL]
-      | ((cur: P[typeof TYPE_SYMBOL]) => P[typeof TYPE_SYMBOL])
-  ): P[typeof TYPE_SYMBOL];
-
-  /**
-   * Cancel in-flight async updates.
-   * @param path - Optional path tracker or string to cancel.
-   */
-  cancelAsyncUpdates<P extends PathTracker<any, any>>(path?: P | string): void;
-
-  /**
-   * Perform an async update with cancellation support.
+   * Вычислить следующее значение, не записывая его (полезно для предварительного расчёта).
    *
-   * @param path - Path tracker identifying the property to update.
-   * @param asyncUpdater - Async function that receives:
-   *   - `current`: the current value at `path`
-   *   - `signal`: an `AbortSignal` which will be triggered if this update is cancelled
-   *   Should return a `Promise` resolving to the new value.
-   * @param options - Optional settings for controlling cancellation behavior.
-   * @param options.abortPrevious - If `true`, will abort any still-pending update on the same path before starting this one.
-   *                                 Defaults to `false` (i.e. do not cancel previous calls).
-   * @returns A `Promise<void>` that resolves once the update has been applied (or is cancelled).
+   * @param pathOrAccessor - Либо строка `"user.count"`, либо Accessor.
+   * @param valueOrFn - Либо новое значение, либо функция `(cur) => новоеЗначение`.
+   * @returns Результирующее значение, которое бы установилось при вызове update.
    */
-  asyncUpdate<P extends PathTracker<any, any>>(
-    path: P,
-    asyncUpdater: (
-      current: P[typeof TYPE_SYMBOL],
-      signal: AbortSignal
-    ) => Promise<P[typeof TYPE_SYMBOL]>,
+  resolveValue(
+    pathOrAccessor: string | Accessor<any>,
+    valueOrFn: any | ((cur: any) => any)
+  ): any;
+
+  /**
+   * Отменить все висящие (in-flight) асинхронные обновления.
+   * Если указан pathOrAccessor, только для него.
+   *
+   * @param pathOrAccessor - Либо строка, либо Accessor.
+   */
+  cancelAsyncUpdates(pathOrAccessor?: string | Accessor<any>): void;
+
+  /**
+   * Выполнить асинхронное обновление с поддержкой отмены.
+   *
+   * @param pathOrAccessor - Либо строка `"data.list[0].value"`, либо Accessor, возвращающий этот фрагмент.
+   * @param asyncUpdater - Асинхронная функция: получает `(currentValue, signal)`, должна вернуть Promise<nextValue>.
+   * @param options.abortPrevious - Если true, отменяет все предыдущие незавершённые обновления по этому пути.
+   * @returns Promise<void>, резолвится после применения или отмены.
+   */
+  asyncUpdate(
+    pathOrAccessor: string | Accessor<any>,
+    asyncUpdater: (current: any, signal: AbortSignal) => Promise<any>,
     options?: { abortPrevious?: boolean }
   ): Promise<void>;
 
   /**
-   * Batch multiple updates in one cycle.
-   * @param callback - Function containing update calls.
+   * Выполнить батчинг нескольких update-вызовов в одну «порцию» без промежуточных уведомлений.
+   *
+   * @param callback - Функция, внутри которой вызываются store.update(...)
    */
   batch(callback: () => void): void;
 
   /**
-   * Undo last update on a path.
-   * @param pathProxy - Path tracker identifying the property.
+   * Откатить (undo) последнее изменение по указанному пути.
+   * @param pathOrAccessor - Либо строка, либо Accessor.
+   * @returns true, если откат произошёл, false, если истории нет.
    */
-  undo(pathProxy: PathTracker<any, any>): void;
+  undo(pathOrAccessor: string | Accessor<any>): boolean;
 
   /**
-   * Redo last undone update on a path.
-   * @param pathProxy - Path tracker identifying the property.
+   * Повторить (redo) последнее откатанное изменение по указанному пути.
+   * @param pathOrAccessor - Либо строка, либо Accessor.
+   * @returns true, если redo произошёл, false, если нечего повторять.
    */
-  redo(pathProxy: PathTracker<any, any>): void;
+  redo(pathOrAccessor: string | Accessor<any>): boolean;
 
   /**
-   * Retrieve store memory and subscription stats.
-   * @returns MemoryStats object with counts and entries.
+   * Получить статистику по памяти, подпискам и истории.
    */
   getMemoryStats(): MemoryStats;
 
   /**
-   * Clear all subscriptions and pending operations.
+   * Полностью очистить хранилище: отменить все подписки и отложенные операции.
    */
   clearStore(): void;
 }

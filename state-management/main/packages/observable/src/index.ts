@@ -1,15 +1,18 @@
 // Refactored ObservableStore implementation with reactive proxy assignment, cache-key-based subscription filtering, and periodic cleanup
+//index.ts
 import {
   Middleware,
   Subscriber,
   CacheKey,
   ObservableStore,
   SubscriptionMeta,
+  Accessor,
 } from "./types";
 import {
   normalizeCacheKey,
   shallowEqual,
-  createPathProxy,
+  splitPath,
+  getStringPath,
   validatePath,
 } from "./utils";
 
@@ -99,22 +102,31 @@ export function createObservableStore<T extends object>(
   const proxyCache = new WeakMap<object, Map<string, any>>();
 
   const historyMgr = new HistoryManager(maxHistoryLength);
-  const { $, getProxyPath, getProxyFromStringPath } = createPathProxy<T>();
 
   const currentPending = () => pendingStack[pendingStack.length - 1];
   // resolve paths from proxies or strings
-  const resolve = (p: any) =>
-    typeof p === "string" ? p : getProxyPath(p)?.join(".") || "";
+  const resolve = (p: string | Accessor<any>) => getStringPath(p);
   // read raw value
-  const getRaw = (path: string) =>
-    path.split(".").reduce((o, k) => o?.[k], rawState);
-  const setRaw = (path: string, val: any) => {
-    const parts = path.split(".");
-    const last = parts.pop()!;
-    const obj = parts.reduce((o, k) => o[k], rawState);
-    obj[last] = val;
+  const getRaw = (path: string) => {
+    const segments = splitPath(path);
+    return segments.reduce((o: any, k) => {
+      if (o == null) return undefined;
+      return o[k as keyof typeof o];
+    }, rawState as any);
   };
-
+  // Аналогично для setRaw:
+  const setRaw = (path: string, val: any) => {
+    const segments = splitPath(path);
+    const lastKey = segments.pop()!;
+    const parentObj = segments.reduce((o: any, k) => {
+      if (o == null)
+        throw new Error(
+          `Невозможно установить по пути "${path}" — промежуточное значение undefined`
+        );
+      return o[k as keyof typeof o];
+    }, rawState as any);
+    parentObj[lastKey as keyof typeof parentObj] = val;
+  };
   function createReactiveProxy<T extends object>(
     target: T,
     parentFullPath: string = ""
@@ -212,7 +224,7 @@ export function createObservableStore<T extends object>(
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
   Object.defineProperty(store, "state", { get: () => stateProxy });
-  store.$ = $;
+  store.$ = store.state;
   // notification: global subscribers filtered by cacheKeys
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
@@ -263,19 +275,19 @@ export function createObservableStore<T extends object>(
     }
   }
 
-  store.resolveValue = (pathProxy, valueOrFn) => {
-    validatePath(pathProxy);
-    const path = resolve(pathProxy);
+  store.resolveValue = (pathOrAccessor, valueOrFn) => {
+    validatePath(pathOrAccessor);
+    const path = resolve(pathOrAccessor);
     const old = getRaw(path);
     return typeof valueOrFn === "function"
       ? (valueOrFn as (cur: any) => any)(old)
       : valueOrFn;
   };
   // API methods
-  store.update = (pathProxy: any, valueOrFn: any) => {
-    validatePath(pathProxy);
-    const path = resolve(pathProxy);
-    const newVal = store.resolveValue(pathProxy, valueOrFn);
+  store.update = (pathOrAccessor: string | Accessor<any>, valueOrFn: any) => {
+    validatePath(pathOrAccessor);
+    const path = resolve(pathOrAccessor);
+    const newVal = store.resolveValue(pathOrAccessor, valueOrFn);
 
     if (batching) {
       currentPending()!.set(path, newVal);
@@ -285,20 +297,28 @@ export function createObservableStore<T extends object>(
   };
 
   store.asyncUpdate = async (
-    pathProxy: any,
+    pathOrAccessor: string | (() => any),
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
     options: { abortPrevious?: boolean } = { abortPrevious: false }
   ) => {
-    validatePath(pathProxy);
-    const pathStr = resolve(pathProxy);
+    // Проверяем, что путь задан корректно (строка или функция-доступ)
+    validatePath(pathOrAccessor);
+
+    // Получаем непосредственно строку вида "a.b.c" или "arr.0.name"
+    const pathStr = resolve(pathOrAccessor);
+
+    // Если нужно отменить предыдущий запрос по этому же пути — делаем abort
     if (options.abortPrevious) {
-      const prev = aborters.get(pathStr);
-      if (prev) {
-        prev.abort();
+      const prevCtrl = aborters.get(pathStr);
+      if (prevCtrl) {
+        prevCtrl.abort();
         aborters.delete(pathStr);
       }
     }
+
+    // Создаём новый AbortController и привязываем его к этому пути
     const ctrl = new AbortController();
+    // При отмене автоматически удаляем контроллер из мапы
     ctrl.signal.addEventListener(
       "abort",
       () => {
@@ -307,15 +327,26 @@ export function createObservableStore<T extends object>(
       { once: true }
     );
     aborters.set(pathStr, ctrl);
+
     try {
-      const old = getRaw(pathStr);
-      const res = await updater(old, ctrl.signal);
+      // Берём текущее «сырое» значение по строковому пути
+      const oldValue = getRaw(pathStr);
+
+      // Вызываем переданную асинхронную функцию (updator), передаём текущий value и signal
+      const newValue = await updater(oldValue, ctrl.signal);
+
+      // Если во время ожидания не произошло abort, применяем обновление
       if (!ctrl.signal.aborted) {
-        store.update(getProxyFromStringPath(pathStr), res);
+        // Передаём результат прямо в store.update, используя строковый путь
+        store.update(pathStr, newValue);
       }
     } catch (e) {
-      if ((e as any).name !== "AbortError") console.error(e);
+      // Если ошибка не связана с AbortError, логируем её
+      if ((e as any).name !== "AbortError") {
+        console.error(e);
+      }
     } finally {
+      // В любом случае удаляем этот контроллер
       aborters.delete(pathStr);
     }
   };
@@ -389,28 +420,46 @@ export function createObservableStore<T extends object>(
   };
 
   store.subscribeToPath = (
-    pathProxy,
+    pathOrAccessor: string | Accessor<any>,
     cb: Subscriber<any>,
-    opts: { immediate?: boolean } = {}
+    opts: { immediate?: boolean; cacheKeys?: CacheKey<T>[] } = {}
   ) => {
-    validatePath(pathProxy);
-    const { immediate = false } = opts;
-    const path = resolve(pathProxy);
-    const wrap = (v: any) => cb(v);
+    validatePath(pathOrAccessor);
 
-    const meta: SubscriptionMeta = (wrap as any).__meta || {
+    const { immediate = false, cacheKeys } = opts;
+    const mainPath = resolve(pathOrAccessor);
+
+    const normalizedKeys = cacheKeys
+      ? cacheKeys.map((k) => normalizeCacheKey(k, store))
+      : [];
+
+    const allPaths = [mainPath, ...normalizedKeys];
+    const wrap = (val: any) => cb(val);
+
+    const meta: SubscriptionMeta = {
       active: true,
-      trackedPaths: new Set(),
+      trackedPaths: new Set(allPaths),
+      cacheKeys:
+        normalizedKeys.length > 0 ? new Set(normalizedKeys) : undefined,
     };
-    meta.trackedPaths.add(path);
     (wrap as any).__meta = meta;
 
-    if (!pathSubscribers.has(path)) pathSubscribers.set(path, new Set());
-    pathSubscribers.get(path)!.add(wrap);
-    if (immediate) wrap(getRaw(path));
+    allPaths.forEach((p) => {
+      if (!pathSubscribers.has(p)) {
+        pathSubscribers.set(p, new Set());
+      }
+      pathSubscribers.get(p)!.add(wrap);
+    });
+
+    if (immediate) {
+      wrap(getRaw(mainPath));
+    }
+
     return () => {
-      pathSubscribers.get(path)!.delete(wrap);
-      historyMgr.clear(path);
+      allPaths.forEach((p) => {
+        pathSubscribers.get(p)?.delete(wrap);
+      });
+      historyMgr.clear(mainPath);
     };
   };
 

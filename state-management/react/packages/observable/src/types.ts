@@ -1,5 +1,5 @@
 import {
-  PathTracker,
+  Accessor,
   ObservableStore,
   CacheKey,
 } from "@qtpy/state-management-observable/types";
@@ -7,8 +7,13 @@ import {
 /**
  * Тип возвращаемого массива значений по path-прокси
  */
-export type UseStoreReturnType<P extends PathTracker<any, any>[]> = {
-  [K in keyof P]: P[K] extends PathTracker<infer V, any> ? V : never;
+export type UseStoreReturnType<P extends Array<string | Accessor<any>>> = {
+  [K in keyof P]: P[K] extends Accessor<infer V>
+    ? V
+    : P[K] extends string
+    ? // если просто строка, непонятно заранее тип, ставим any
+      any
+    : never;
 };
 
 /**
@@ -16,24 +21,35 @@ export type UseStoreReturnType<P extends PathTracker<any, any>[]> = {
  */
 export interface ReactStore<T extends object> extends ObservableStore<T> {
   /** Подписка на массив путей, возвращает массив текущих значений */
-  useStore<P extends PathTracker<any, any>[]>(
+  useStore<P extends Array<string | Accessor<any>>>(
     paths: [...P],
     options?: { cacheKeys?: CacheKey<T>[] }
   ): UseStoreReturnType<P>;
 
   /** Хук для одного поля: [значение, setValue] */
-  useField<P extends PathTracker<any, any>>(
+  useField<P extends string | Accessor<any>>(
     path: P,
     options?: { cacheKeys?: CacheKey<T>[] }
   ): readonly [
-    P extends PathTracker<infer V, any> ? V : never,
-    (v: P extends PathTracker<infer V, any> ? V : never) => void
+    P extends Accessor<infer V> ? V : any,
+    (v: P extends Accessor<infer V> ? V : any) => void
   ];
+
+  /**
+   * Хук-эффект, вызываемый при изменении значений по указанным путям.
+   * @param paths — массив путей (строка или Accessor)
+   * @param effect — функция, вызываемая с текущим массивом значений
+   * @param options.cacheKeys — опциональные cacheKeys для дополнительной фильтрации подписки
+   */
+  useEffect<P extends Array<string | Accessor<any>>>(
+    paths: [...P],
+    effect: (values: UseStoreReturnType<P>) => void,
+    options?: { cacheKeys?: CacheKey<T>[] }
+  ): void;
 
   /** Инвалидация компонентов по ключам кеша */
   reloadComponents(cacheKeys: CacheKey<T>[]): void;
 }
-
 /**
  * Опции для ReactStore, передаются во внутренний createObservableStore
  */
