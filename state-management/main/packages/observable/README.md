@@ -13,31 +13,31 @@
 2. [Пример создания основного store (с middleware)](#пример-создания-основного-store-с-middleware)
 
 3. [API createObservableStore](#api-createobservablestore)  
-   3.1. [store.state / store.\$](#storestate--store)  
-   3.2. [store.subscribe(callback, cacheKeys?)](#storesubscribecallback-cachekeys)  
-   3.3. [store.subscribeToPath(pathOrAccessor, callback, options?)](#storesubscribetopathpathoraccessor-callback-options)  
-   3.4. [store.invalidate(cacheKey)](#storeinvalidatecachekey)  
-   3.5. [store.get(pathOrAccessor)](#storegetpathoraccessor)  
-   3.6. [store.update(pathOrAccessor, valueOrFn)](#storeupdatepathoraccessor-valueorfn)  
-   3.7. [store.resolveValue(pathOrAccessor, valueOrFn)](#storeresolvevaluepathoraccessor-valueorfn)
+   3.1. [`store.state` / `store.$`](#storestate--store)  
+   3.2. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
+   3.3. [`store.subscribeToPath(pathOrAccessor, callback, options?)`](#storesubscribetopathpathoraccessor-callback-options)  
+   3.4. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
+   3.5. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
+   3.6. [`store.update(pathOrAccessor, valueOrFn)`](#storeupdatepathoraccessor-valueorfn)  
+   3.7. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)
 
 4. [Асинхронные обновления](#асинхронные-обновления)  
-   4.1. [store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)](#storeasyncupdatepathoraccessor-asyncupdater-options)  
-   4.2. [store.cancelAsyncUpdates(pathOrAccessor?)](#storecancelasyncupdatespathoraccessor)
+   4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
+   4.2. [`store.cancelAsyncUpdates(pathOrAccessor?)`](#storecancelasyncupdatespathoraccessor)
 
-5. [Батчинг (store.batch)](#батчинг-storebatch)
+5. [Батчинг (`store.batch`)](#батчинг-storebatch)
 
 6. [История изменений (undo/redo)](#история-изменений-undoredo)  
-   6.1. [store.undo(pathOrAccessor)](#storeundopathoraccessor)  
-   6.2. [store.redo(pathOrAccessor)](#storeredopathoraccessor)
+   6.1. [`store.undo(pathOrAccessor)`](#storeundopathoraccessor)  
+   6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)
 
 7. [Статистика и очистка](#статистика-и-очистка)  
-   7.1. [store.getMemoryStats()](#storegetmemorystats)  
-   7.2. [store.clearStore()](#storeclearstore)
+   7.1. [`store.getMemoryStats()`](#storegetmemorystats)  
+   7.2. [`store.clearStore()`](#storeclearstore)
 
 8. [Промежуточная обработка (Middleware)](#промежуточная-обработка-middleware)  
    8.1. [Когда срабатывает middleware](#1-когда-срабатывает-middleware)  
-   8.2. [Изменение value внутри middleware](#2-изменение-value-внутри-middleware)  
+   8.2. [Изменение `value` внутри middleware](#2-изменение-value-внутри-middleware)  
    8.3. [Блокировка изменения](#3-блокировка-изменения)  
    8.4. [Последовательность нескольких middleware](#4-последовательность-нескольких-middleware)
 
@@ -47,9 +47,11 @@
 
 ---
 
----
+Ниже приведён пример реализации универсального реактивного стора (ObservableStore), написанного на TypeScript без привязки к конкретному фреймворку. Такой стор можно легко «подключить» в любом фронтенд-фреймворке (React, Vue, Svelte, Solid и т. д.) путём написания нескольких обёрток (адаптеров) поверх базового API.
 
-Ниже приведён пример реализации универсального реактивного стора (`ObservableStore`), написанного на TypeScript без привязки к конкретному фреймворку. Такой стор можно легко «подключить» в любом фронтенд-фреймворке (React, Vue, Svelte, Solid и т. д.) путём написания нескольких обёрток (адаптеров) поверх базового API.
+- Обертка под react: [@qtpy/state-management-react](https://www.npmjs.com/package/@qtpy/state-management-react)
+
+---
 
 ## Основная идея и архитектура
 
@@ -57,43 +59,45 @@
 
    Все обращения к состоянию (`state`) проходят через JavaScript Proxy, позволяющий автоматически отслеживать чтения и записи.
 
-   - При чтении происходят «граббинги» зависимостей (чтобы знать, кто подписан на какой участок состояния).
-   - При записи Proxy перехватывает изменение и уведомляет подписчиков.
+   - При чтении Proxy «собирает» зависимости: какие участки состояния используются внутри разных Accessor’ов или подписок.
+   - При записи Proxy перехватывает изменение и в конце вызывает цепочку middleware и нотификации подписчиков.
 
 2. #### Подписки с «гранулярностью» путей
 
-   - Можно подписаться на любое конкретное поле вложенного объекта (например, `"user.settings.theme"`).
-   - При изменении именно этого поля подписчики получат уведомление. Другие изменения в сторе не триггерят лишних колбэков.
+   - Можно подписаться на любое конкретное поле вложенного объекта, используя либо строку-путь (`"user.settings.theme"`), либо Accessor: `(t) => store.state.user.settings.theme`.
+   - При изменении именно этого поля подписчики получат уведомление. Изменения в других полях не затронут эту подписку.
 
 3. #### Кэш-ключи (cacheKeys)
 
-   - Позволяют группировать «логические зависимости» (например, вычисляемые свойства или отдельные куски UI).
-   - При инвалидизации (вызове `invalidate(key)`) все подписчики, указавшие этот `cacheKey`, будут уведомлены, даже если напрямую поле могло не меняться.
+   - Позволяют группировать «логические зависимости» (например, вычисляемые свойства).
+   - При вызове `store.invalidate(key)` все подписчики, передавшие этот `cacheKey` при подписке, будут уведомлены, даже если напрямую поле остался тем же.
 
 4. #### Middleware-подход
 
    - При каждом `update` (или прямой записи через Proxy) можно выполнить цепочку middleware, чтобы логировать, валидировать или блокировать изменения.
-   - Middleware вызываются в том порядке, в каком были зарегистрированы, но с учётом реверсивной передачи «вглубь» (чтобы окончательное ядро Update вызывалось только после прохода через всё дерево middleware).
+   - Каждый middleware видит путь (`string`) и новое значение, может модифицировать или остановить дальнейшее распространение.
 
 5. #### Batching-обёртка
 
-   - Позволяет «склеивать» несколько изменений в одно уведомление, чтобы избежать лишних перерендеров или запуска тяжёлых действий (API-запросов, пересчётов).
+   - Позволяет «склеивать» несколько изменений в одно уведомление. Это важно, чтобы не вызывать повторный ререндер UI при последовательных взаимосвязанных изменениях.
 
 6. #### Асинхронные обновления
 
-   - Метод `asyncUpdate(path, asyncFn, options?)` позволяет выполнять асинхронные операции (fetch, таймеры, запросы), автоматически отменяя предыдущие обновления по тому же пути при необходимости (опция `abortPrevious`).
+   - Метод `asyncUpdate(pathOrAccessor, asyncFn, options?)` позволяет выполнять асинхронные операции (fetch, таймеры, запросы) и автоматически отменять предыдущие, если они всё ещё в процессе (опция `abortPrevious`).
 
 7. #### История изменений (undo/redo)
 
-   - Для каждого пути поддерживается стек исторических значений (до `maxHistoryLength`).
-   - Методы `undo(path)` и `redo(path)` восстанавливают предыдущие или отменённые изменения.
+   - Для каждого пути автоматически поддерживается стек исторических значений (до `maxHistoryLength`).
+   - Методы `undo(pathOrAccessor)` и `redo(pathOrAccessor)` позволяют откатиться на предыдущие/следующие значения.
 
 8. #### Интеграция с любым фреймворком
 
-   - Базовое API стpа не имеет зависимостей от React/Vue и т.д.
-   - Для React достаточно написать хук `useObservableStore`, который будет подписываться на нужный путь и диспатчить обновление компонента. Аналогично для Vue/Svelte/Solid достаточно адаптера, который «слушает» изменения Proxy и вызывает соответствующие обновления.
+   - Базовое API стора не зависит от React/Vue и т. д.
+   - Для React достаточно написать хук `useObservableStore`, который внутри использует `store.subscribeToPath` с Accessor’ом, и диспатчит обновление компонента. Аналогично для Vue/Svelte/Solid достаточно написать адаптер, который на изменение Proxy вызывает реактивное обновление.
 
 ---
+
+https://www.npmjs.com/package/@qtpy/state-management-react
 
 ## Пример создания основного `store` (с middleware)
 
@@ -102,8 +106,8 @@
 import {
   createObservableStore,
   Middleware,
-  SubscriptionCallback,
   Accessor,
+  SubscriptionCallback,
 } from "./index";
 
 // 1) Определяем начальный стейт:
@@ -152,12 +156,13 @@ export const store = createObservableStore(
 
 ### `store.state` / `store.$`
 
-- **Что это:** реактивный Proxy-объект с текущим состоянием (readonly только «снаружи»).
+- **Что это:** реактивный Proxy-объект с текущим состоянием (readonly снаружи).
+
 - **Как пользоваться:**
 
   ```ts
   // Чтение:
-  console.log(store.state.user.name); // Alice
+  console.log(store.state.user.name); // "Alice"
   console.log(store.$.items.length); // 3
 
   // Прямая запись (через Proxy) «автоматом» вызывает middleware и нотификации подписчиков:
@@ -165,20 +170,21 @@ export const store = createObservableStore(
   store.state.items.push(4);
   ```
 
-- **Примечание:** `store.$`— это синоним `store.state`, просто позволяет использовать краткое обозначение внутри логики.
+- **Примечание:** `store.$` — это просто синоним `store.state`. Удобно для внутрянки.
 
 ---
 
 ### `store.subscribe(callback, cacheKeys?)`
 
 - **Что делает:** подписывает на **любой** апдейт всего состояния (глобальная подписка).
+
 - **Параметры:**
 
-  1. `callback: (newState) => void` — вызывается после каждого «батча» изменений.
-  2. `cacheKeys?: string[]` — массив строковых ключей (cacheKey). Если указать, то уведомление придёт только тогда, когда:
+  1. `callback: (newState: typeof initialState) => void` — вызывается после каждого «батча» изменений.
+  2. `cacheKeys?: string[]` — массив строковых ключей (cacheKey). Если указан, уведомление придёт только тогда, когда:
 
-     - изменился любой кусок стейта, и при этом хотя бы один `cacheKey` из списка был **инвалидирован** (см. `store.invalidate`), либо
-     - внутри middleware/логики при обновлении явно вызывалась инвалидизация этого cacheKey.
+     - изменился любой кусок стейта, и при этом один из этих cacheKeys был инвалидирован (`store.invalidate`), либо
+     - напрямую было вызвано `store.invalidate(cacheKey)`.
 
 - **Пример:**
 
@@ -204,34 +210,42 @@ export const store = createObservableStore(
 
 ### `store.subscribeToPath(pathOrAccessor, callback, options?)`
 
-- **Что делает:** подписывается на изменения **конкретного поля** (пути) в стейте.
+- **Что делает:** подписывается на изменения **конкретного поля** (пути) в стейте, используя либо строку-путь, либо Accessor<T>.
+
 - **Параметры:**
 
-  1. `pathOrAccessor: string | (() => any)` — либо строка-путь (например, `"user.age"`), либо Accessor-функция, возвращающая нужное значение из `store.state`.
-  2. `callback: (newValue) => void` — вызывается каждый раз при изменении указанного пути.
+  1. `pathOrAccessor: string | Accessor<any>`
+
+     - **`string`**: например, `"user.age"` или `"items.0"`
+     - **`Accessor<any>`**: функция `(t?) => store.state.some.nested[t(dynamicIndex), …]`
+       — если вам нужно подписаться, но индекс вычисляется динамически, можно передать Accessor.
+
+  2. `callback: (newValue: any) => void` — вызывается при изменении указанного пути.
   3. `options?: { immediate?: boolean; cacheKeys?: string[] }` —
 
-     - `immediate: true` — если указано, сразу вызываем callback с текущим значением, даже до первого изменения.
-     - `cacheKeys: string[]` — если задан список cacheKeys, колбэк будет вызываться не только при прямом изменении пути, но и при инвалидизации хотя бы одного указанного ключа (см. `store.invalidate`).
+     - `immediate: true` — сразу вызываем callback с текущим значением, даже до первого изменения.
+     - `cacheKeys: string[]` — список cacheKeys; колбэк будет вызываться при этом событии, даже если путь не менялся напрямую (см. `store.invalidate`).
 
-- **Пример:**
+- **Примеры:**
 
   ```ts
-  // Подписка на изменение user.name:
+  // 1) Подписка на изменение user.name по строковому пути:
   const unsubName = store.subscribeToPath(
     "user.name",
     (newName) => console.log("Имя пользователя:", newName),
     { immediate: true }
   );
 
-  // Подписка через Accessor и cacheKeys:
+  // 2) Подписка на первый элемент массива items:
+  //    Здесь index может меняться динамически внутри Accessor через t(index)
+  let idx = 0;
   const unsubFirstItem = store.subscribeToPath(
-    () => store.state.items[0],
+    (t) => store.state.items[t(idx)], // Accessor<any>
     (val) => console.log("Первый элемент массива:", val),
     { cacheKeys: ["counter"] }
   );
 
-  // Отписаться:
+  // 3) Отписка:
   unsubName();
   unsubFirstItem();
   ```
@@ -240,10 +254,9 @@ export const store = createObservableStore(
 
 ### `store.invalidate(cacheKey)`
 
-- **Что делает:**
-  Инвалидирует указанный строковый ключ `cacheKey`.
+- **Что делает:** инвалидирует указанный строковый ключ (`cacheKey`).
 
-  - Всем глобальным подписчикам, которые при подписке передали этот ключ в список `cacheKeys`, придёт уведомление (даже если напрямую значение по их пути не менялось).
+  - Всем глобальным подписчикам, которые при подписке передали этот ключ в `cacheKeys`, придёт уведомление (даже если напрямую значение по их пути не менялось).
 
 - **Пример:**
 
@@ -256,10 +269,10 @@ export const store = createObservableStore(
 
 ### `store.get(pathOrAccessor)`
 
-- **Что делает:**
-  Возвращает «сырое» текущее значение по указанному пути или Accessor-функции.
+- **Что делает:** возвращает текущее значение по указанному `pathOrAccessor`.
 
-  - Если путь не найден — возвращает undefined.
+  - Если передан `string` → возвращает `store.state[path]` (или `undefined`, если путь не найден).
+  - Если передан `Accessor<any>` → внутри создаётся временная «заглушка» `t`(не обязательна), запускается Accessor, и возвращается результат.
 
 - **Пример:**
 
@@ -267,53 +280,89 @@ export const store = createObservableStore(
   const age = store.get("user.age"); // 30
   console.log("Возраст:", age);
 
-  const firstItem = store.get(() => store.state.items[0]);
-  console.log("Первый элемент:", firstItem); // 1
+  // Пример с Accessor: читаем элемент массива по динамическому индексу
+  let idx = 1;
+  const firstItem = store.get((t) => store.state.items[t(idx)]);
+  console.log("Второй элемент массива:", firstItem); // 2
   ```
 
 ---
 
 ### `store.update(pathOrAccessor, valueOrFn)`
 
-- **Что делает:**
-  Синхронно обновляет значение по заданному пути (строка или Accessor).
+- **Что делает:** синхронно обновляет значение по заданному `pathOrAccessor`.
+
+  - `pathOrAccessor: string | Accessor<any>`
+
+    - Если `string` → обновляем конкретный ключ.
+    - Если `Accessor<any>` → внутри Accessor использует функцию `t(...)` для вычисления пути, затем обновляет это конкретное свойство.
 
   - `valueOrFn` может быть:
 
-    1. Прямым значением: `store.update("user.age", 35)`
-    2. Функцией `(cur) => next`: вычисляет следующее значение на основе текущего.
+    1. **Прямым значением**:
 
-  - При записи в историю (до `maxHistoryLength`) пушится старое значение.
-  - Вызываются middleware (в порядке регистрации), затем применяются изменения и уведомляются подписчики.
-  - **Важное замечание:** Прямое присвоение через Proxy (`store.state.user.name = "Charlie"`) автоматически делегируется в `update` и тоже запускает весь цикл middleware и подписок.
+       ```ts
+       store.update("user.age", 35);
+       ```
+
+    2. **Функцией** `(cur) => next`: вычисляет новое значение на основе текущего:
+
+       ```ts
+       store.update("user.age", (cur) => cur + 1);
+       ```
+
+    3. **Если Accessor**: например,
+
+       ```ts
+       let idx = 2;
+       store.update(
+         (t) => store.state.items[t(idx)],
+         (cur) => cur * 10
+       );
+       ```
+
+       — тут `t(idx)` возвращает число `2`, и обновится `items[2]`.
+
+  - При записи:
+
+    - Сначала сохраняется старое значение в историю (до `maxHistoryLength`).
+    - Запускаются middleware (в порядке регистрации).
+    - Применяется фактическое обновление.
+    - В конце уведомляются подписчики.
 
 - **Примеры:**
 
   ```ts
-  // Обновление через метод:
+  // 1) Обновление через строковый путь:
   store.update("user.age", 35);
   store.update("user.age", (cur) => cur + 1);
-  store.update(() => store.state.items[0], 42);
 
-  // Прямые присваивания через Proxy:
+  // 2) Обновление через Accessor + динамический индекс:
+  let dynamicIdx = 0;
+  store.update((t) => store.state.items[t(dynamicIdx)], 42);
+  // После этого items[0] станет 42.
+
+  // 3) Прямые присваивания через Proxy:
+  //    Proxy автоматически делегирует на store.update
   store.state.user.name = "Charlie";
-  store.state.user.age = 23;
-  store.state.items[0] = 100;
-  // → Подписчики на "user.name", "user.age" и "items.0" будут вызваны автоматически.
+  store.state.items[1] = 100;
+  // → Подписчики на "user.name" и "items.1" получат нотификацию.
   ```
 
 ---
 
 ### `store.resolveValue(pathOrAccessor, valueOrFn)`
 
-- **Что делает:**
-  Вычисляет, какое значение получено при применении `valueOrFn`, **но без фактической записи** в стор.
+- **Что делает:** вычисляет, какое значение получится при применении `valueOrFn`, **но без фактической записи** в стор.
+
+  - Удобно, когда нужно только узнать, как изменится значение, но ещё не применять это обновление.
+
 - **Пример:**
 
   ```ts
   const nextCounter = store.resolveValue("counter", (cur) => cur + 5);
   console.log("Будет следующий counter:", nextCounter);
-  // При этом store.get("counter") остаётся прежним.
+  // Но store.get("counter") остаётся прежним.
   ```
 
 ---
@@ -322,16 +371,14 @@ export const store = createObservableStore(
 
 ### `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
 
-- **Что делает:**
-  Позволяет выполнить асинхронную функцию, передающую текущее значение и `AbortSignal`.
+- **Что делает:** выполняет асинхронную функцию, передающую текущее значение и `AbortSignal`, а затем записывает результат в указанный путь.
 
-  - После завершения `asyncUpdater` возвращённое значение будет записано в стор по указанному пути.
-  - Если в `options` указано `{ abortPrevious: true }`, предыдущий незавершённый асинхронный вызов по тому же пути будет отменён.
+  - Если указан `options.abortPrevious: true`, предыдущий незавершённый запрос по тому же пути будет отменён при помощи `AbortController`.
 
 - **Параметры:**
 
-  1. `pathOrAccessor: string | (() => any)`
-  2. `asyncUpdater: (currentValue, signal) => Promise<nextValue>`
+  1. `pathOrAccessor: string | Accessor<any>`
+  2. `asyncUpdater: (currentValue: any, signal: AbortSignal) => Promise<any>`
   3. `options?: { abortPrevious?: boolean }`
 
 - **Пример:**
@@ -353,10 +400,9 @@ export const store = createObservableStore(
 
 ### `store.cancelAsyncUpdates(pathOrAccessor?)`
 
-- **Что делает:**
-  Отменяет все «висящие» (in-flight) asyncUpdate-запросы (через AbortSignal).
+- **Что делает:** отменяет все «висящие» (in-flight) `asyncUpdate` вызовы.
 
-  - Если указан `pathOrAccessor`, то отменяет только для этого пути, иначе – для всех.
+  - Если указан `pathOrAccessor`, то отменяет только для этого пути, иначе для всех.
 
 - **Пример:**
 
@@ -374,16 +420,15 @@ export const store = createObservableStore(
 
 ### `store.batch(callback)`
 
-- **Что делает:**
-  Группирует несколько изменений внутри одного колбэка, откладывая уведомления подписчикам до конца.
+- **Что делает:** группирует несколько изменений внутри одного блока, откладывая уведомления подписчикам до конца.
 
-  - Внутри `callback` можно использовать как `store.update`, так и прямые присваивания через `store.state` (Proxy).
-  - После выхода из `callback` уведомления отправляются единожды, даже если внутри было несколько изменений.
+  - Внутри `callback` можно использовать как `store.update(...)`, так и прямые присваивания через `store.state` (Proxy).
+  - После выхода из `callback` уведомления отправляются единовременно.
 
 - **Примеры:**
 
   ```ts
-  // Через метод update:
+  // 1) Через метод update:
   await store.batch(() => {
     store.update("user.name", "Charlie");
     store.update("user.age", (cur) => cur + 2);
@@ -391,14 +436,14 @@ export const store = createObservableStore(
   });
   // Подписчики получат одно уведомление после всех изменений.
 
-  // С прямыми присваиваниями:
+  // 2) С прямыми присваиваниями:
   await store.batch(() => {
     store.state.user.name = "Charlie";
     store.state.user.age = 23;
     store.state.items[0] = 100;
-    store.state.items[0] = 2323; // перезапишется внутри той же батчи
+    store.state.items[2] = 2323; // всё в рамках одной батчи
   });
-  // Подписчики увидят изменения по "user.name", "user.age" и "items.0" одним колбэком.
+  // Подписчики увидят изменения по "user.name", "user.age" и "items.0", "items.2" одним колбэком.
   ```
 
 ---
@@ -407,10 +452,9 @@ export const store = createObservableStore(
 
 ### `store.undo(pathOrAccessor)`
 
-- **Что делает:**
-  Откатывает (undo) последнее изменение по указанному пути.
+- **Что делает:** откатывает (undo) последнее изменение по указанному пути (или Accessor).
 
-  - Если история по этому пути непуста, возвращает `true` и восстанавливает предыдущее значение, иначе `false`.
+  - Если есть предыдущая запись, возвращает `true` и восстанавливает предыдущее значение. Иначе возвращает `false`.
 
 - **Пример:**
 
@@ -427,10 +471,9 @@ export const store = createObservableStore(
 
 ### `store.redo(pathOrAccessor)`
 
-- **Что делает:**
-  Повторяет (redo) последнее откатное изменение по указанному пути.
+- **Что делает:** повторяет (redo) последнее откатное изменение по указанному пути.
 
-  - Если есть «отменённое» значение, возвращает `true` и применяет его, иначе `false`.
+  - Если есть «отменённое» значение, возвращает `true` и применяет его. Иначе `false`.
 
 - **Пример:**
 
@@ -447,11 +490,10 @@ export const store = createObservableStore(
 
 ### `store.getMemoryStats()`
 
-- **Что делает:**
-  Возвращает объект с текущими статистическими данными:
+- **Что делает:** возвращает объект с текущими статистическими данными:
 
   - `subscribersCount` — число глобальных подписчиков.
-  - `pathSubscribersCount` — число подписок по конкретным путям.
+  - `pathSubscribersCount` — число подписок по конкретным путям/Accessor’ам.
   - `historyEntries` — список всех путей и длина их истории.
   - `activePathsCount` — число активных путей (за которыми кто-то следит).
 
@@ -468,8 +510,7 @@ export const store = createObservableStore(
 
 ### `store.clearStore()`
 
-- **Что делает:**
-  Полностью очищает хранилище:
+- **Что делает:** полностью очищает хранилище:
 
   - Удаляет все подписки (глобальные и по путям).
   - Отменяет все «висящие» асинхронные обновления.
@@ -490,16 +531,20 @@ export const store = createObservableStore(
 
 ### 1. Когда срабатывает middleware
 
-- Middleware вызываются **только** при вызове `store.update(...)` или при прямом присвоении через `store.state` (через Proxy).
-- Если обновление обойти Proxy (например, напрямую поменять внутренний объект вне Proxy), middleware не запустятся.
+- Middleware вызываются **только** при:
+
+  1. вызове `store.update(...)`, или
+  2. прямой записи через Proxy (`store.state.some.key = newValue`).
+
+- Если обновление обойти Proxy (например, напрямую поменять внутренний «сырой» объект вне Proxy), middleware не запустятся.
 
 ```ts
 // Гарантированная активация middleware:
 store.update("user.name", "Dmitry");
-store.state.user.name = "Dmitry"; // тоже проксируется и идёт через middleware
+store.state.user.name = "Dmitry"; // Proxy перехватывает и идёт через middleware
 
 // НЕ активирует middleware (не рекомендуется):
-// (внутренний «сырый» объект здесь не трогает middleware):
+// (внутренний «сырый» объект здесь не трогает Proxy)
 (store as any).rawState.user.name = "Eve";
 ```
 
@@ -556,8 +601,7 @@ store.update("user.name", "Bob");
 
 ### 4. Последовательность нескольких middleware
 
-При создании стора можно передать массив middleware, например: `[mw1, mw2, mw3]`.
-Порядок вызова (после реверса) таков:
+При создании стора можно передать массив middleware, например: `[mw1, mw2, mw3]`. Порядок вызова (после реверса) таков:
 
 1. mw1 → вызывает mw2
 2. mw2 → вызывает mw3
@@ -579,7 +623,7 @@ const mw2: Middleware<typeof initialState> = (store, next) => {
     console.log("[MW2] Проверяем", path);
     if (path === "items.0") {
       console.log("[MW2] Блокируем изменение items.0");
-      return; // не вызываем next → mw3 и ядро не выполняются
+      return; // mw3 и ядро не выполнятся
     }
     next(path, value);
   };
@@ -600,7 +644,7 @@ store.update("items.0", 999);
 // [MW1] До items.0 999
 // [MW2] Проверяем items.0
 // [MW2] Блокируем изменение items.0
-// → mw1 не получит управления после next, mw3 не вызовется, update не применится.
+// → mw1 не продолжит после next, mw3 не вызовется, update не применится.
 
 store.update("user.name", "Dmitry");
 // Лог:
@@ -608,15 +652,8 @@ store.update("user.name", "Dmitry");
 // [MW2] Проверяем user.name
 // [MW3] Логика MW3
 // [MW1] После user.name Dmitry
-// → Реальное значение user.name изменено.
+// → Значение применено.
 ```
-
-**Вывод по middleware:**
-
-1. Middleware срабатывают только при использовании `store.update(...)` или записи через Proxy (`store.state`).
-2. Внутри middleware можно изменить значение перед вызовом `next`.
-3. Если не вызывать `next`, текущее обновление не дойдёт до следующих этапов.
-4. Порядок middleware важен: тот, кто стоит раньше, может блокировать или модифицировать `path/value` до того, как это увидят следующие.
 
 ---
 
@@ -624,46 +661,49 @@ store.update("user.name", "Dmitry");
 
 1. **Фреймворк-агностичность**
 
-   - Ядро стора написано «чисто» на TypeScript без привязки к конкретному UI-фреймворку.
-   - Для каждого фреймворка (React, Vue, Svelte, Solid и т. д.) достаточно написать лёгкий адаптер, который конвертирует `subscribeToPath` ↔️ ререндер в соответствующий способ.
+   - Ядро стора написано «чисто» на TypeScript, без зависимостей от React/Vue/Svelte.
+   - Для каждого фреймворка достаточно написать адаптер (хук или плагин), который будет цепляться к `store.subscribeToPath` и диспатчить обновления UI.
 
 2. **Точная гранулярность подписок**
 
-   - Подписываются только на конкретные поля (пути) или на cacheKey.
-   - Нет «лишних» уведомлений: если обновился `user.age`, подписчик на `items[0]` не будет вызван.
+   - Подписки могут работать по строковому пути или через Accessor<T>, где внутри Accessor можно использовать функцию `t(…)` для динамических индексов.
+   - Подписчики получают уведомления только по тем полям, на которые они подписаны.
 
 3. **Middleware и валидаторы**
 
-   - Можно централизованно описать любые проверки/ограничения перед изменением состояния (блокировка, логирование, клэмпинг и т. д.).
-   - Каждый middleware может модифицировать значение или полностью отменить update.
+   - Можно централизованно описать проверки/блокировки/трансформации значений до их записи.
+   - Каждый middleware может модифицировать `value` или полностью отменить обновление.
 
 4. **Асинхронная логика ввода-вывода**
 
-   - `asyncUpdate` с опцией `abortPrevious` позволяет элегантно обрабатывать запросы к серверу и отменять старые, если пришёл новый.
+   - `asyncUpdate` с опцией `abortPrevious` позволяет элегантно обрабатывать взаимодействие с сетью, отменяя прежние запросы, если они больше не актуальны.
 
 5. **История, undo/redo**
 
-   - Для каждого пути автоматически накапливается стек изменений, что упрощает реализацию undo/redo в UI (например, в редакторах или сложных формах).
+   - Автоматический стек изменений для каждого пути. Удобно в UI для кнопок «отменить»/«вернуть».
 
 6. **Batching**
 
-   - Позволяет сгруппировать сразу несколько связанных обновлений, чтобы подписчики получили единое уведомление, а UI не перерендерился по каждому маленькому изменению.
+   - Позволяет сгруппировать сразу несколько взаимосвязанных обновлений, чтобы подписчики получили единое уведомление, и UI не перерендеривался по каждому мелкому изменению.
 
-7. **Поддержка TypeScript**
+7. **Полная поддержка TypeScript**
 
-   - Типизация `createObservableStore<RootState>(initialState, middleware, options)` даёт автодополнение и гарантии корректности путей при `store.get("user.age")` и `store.update("user.age", ...)`.
+   - Тип `Accessor<T> = (t: (arg: any) => any) => T` обеспечивает автодополнение и статическую проверку при работе с вложенными путями.
+   - Вызовы `store.get` и `store.update` с Accessor’ом позволяют точно указывать нужное свойство без хардкода строк.
 
 ---
 
-## # Вывод
+## Вывод
 
-1. **ObservableStore** — это универсальный реактивный стор, построенный на основе JavaScript Proxy, подписок по путям и цепочек middleware, который не зависит от конкретного фреймворка.
-2. Благодаря «чистому» ядру, написанному на TypeScript, его можно без изменений подключать в React, Vue 3, Svelte, Solid и любых других средах: достаточно написать лёгкие «обёртки» (адаптеры) для подписки/рендера.
-3. Вектор развития ObservableStore:
+- **ObservableStore** — это универсальный реактивный стор, построенный на основе JavaScript Proxy, Accessor<T> для динамических путей, granular подписок и цепочек middleware.
+- Благодаря «чистому» ядру, написанному на TypeScript, его можно без изменений подключать в React, Vue 3, Svelte, Solid и другие среды: достаточно написать лёгкие адаптеры для подписки и рендеринга.
+- **Ключевые возможности**:
 
-   - **Простая интеграция** с любым UI → адаптеры/хуки/реактивные примеси (Vue)
-   - **Максимальная производительность** → granular подписки, batching
-   - **Безопасность данных** → middleware для валидации, ограничения, логирования
-   - **Дополнительные возможности** → undo/redo, асинхронные апдейты с отменой старых запросов, кэш-ключи для вычисляемых свойств
+  1. Поддержка динамических путей через `Accessor<T>`, где внутри можно вызвать `t(index)` для вычисления индекса.
+  2. Гранулярные подписки по точечному пути или Accessor’у.
+  3. Middleware для валидации и логирования.
+  4. Асинхронные обновления с отменой прошлых запросов (`asyncUpdate`).
+  5. История изменений (undo/redo) для каждого пути.
+  6. Бэчинг (`batch`) для группировки изменений.
 
-4. Если вам нужен лёгкий, быстро работающий, при этом максимально гибкий реактивный стор, который одинаково хорошо подойдёт под React, Vue, Svelte и другие фреймворки, описанный **ObservableStore** предоставит все необходимые механизмы «из коробки»: подписки по пути, middleware, асинхронная логика и история.
+Если вам нужен лёгкий, быстро работающий, максимально гибкий реактивный стор с поддержкой динамических Accessor’ов, изложенный **ObservableStore** предоставит все механизмы «из коробки».

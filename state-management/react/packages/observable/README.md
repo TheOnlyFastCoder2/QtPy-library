@@ -412,7 +412,7 @@ export const moveTile = (row: number, col: number) => {
     // 2) Меняем местами значения в board
     const tileValue = board[row][col]!;
     puzzleStore.update(`board.${row}.${col}`, null);
-    puzzleStore.update(`board.${empty.row}.${empty.col}`, tileValue);
+    puzzleStore.update((t) => board[t(empty.row)][t(empty.col)], tileValue);
 
     // 3) Проверяем, решена ли головоломка
     const newBoard = puzzleStore.get(() => $.board)!;
@@ -452,8 +452,7 @@ import { puzzleStore, $, moveTile } from "./store";
 
 export const Tile = memo(({ row, col }: { row: number; col: number }) => {
   // Подписываемся только на эту ячейку
-
-  const [value] = puzzleStore.useStore([`board.${row}.${col}`]);
+  const [value] = puzzleStore.useStore([(t) => $.board[t(row)][t(col)]]);
   // Подписываемся на флаг решения
   const [isSolved] = puzzleStore.useField(() => $.isSolved);
 
@@ -469,7 +468,7 @@ export const Tile = memo(({ row, col }: { row: number; col: number }) => {
 });
 ```
 
-- `useStore([`board.${row}.${col}`])` — подписка на конкретное поле `board.${row}.${col}`.
+- `useStore([(t) => $.board[t(row)][t(col)]])` — подписка на конкретное поле `$.board[t(row)][t(col)`.
 - `useField(() => $.isSolved)` — кортеж `[isSolved, setSolved]`, но мы здесь только читаем и отключаем кнопку, если головоломка решена.
 
 ---

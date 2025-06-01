@@ -1,46 +1,116 @@
 // utils.tsx
 
-import { CacheKey, ObservableStore } from "./types";
-
-type Accessor<T> = () => T;
+import { Accessor, CacheKey, ObservableStore } from "./types";
 
 /**
- * Извлекает строку вида "object.key.settings.name" из стрелочной функции
- * и преобразует все "[index]" в ".index".
+ * То же, что раньше: внутри собираются вызовы t(<expr>) и записываются в dynamicValues,
+ * но функция возвращает только строку пути в точечной нотации.
+ * Параметр t теперь — дженерик-функция <K>(arg: K) => K. Если t не используется, его можно опустить.
  *
- * @param fn Стрелочная функция: () => object.key.settings.name или () => object.arr[0]
- * @returns Строка вида "object.key.settings.name" или "object.arr.0"
+ * @param fn Стрелочная функция вида:
+ *   - (t) => obj.foo[t(bar),t(42)]
+ *   - () => obj.foo.bar
+ *   - u => u.arr[0]
+ * @returns Строка вида "obj.foo.123.456" или "obj.foo.bar"
  */
 export function getStringOfObject<T>(fn: Accessor<T>): string {
   const fnString = fn.toString().trim();
-  // 1) Стрелочная функция без фигурных скобок: "() => object.key"
-  const arrowWithoutBracesMatch = fnString.match(
-    /^\(?\s*\)?\s*=>\s*([\w$\.\[\]]+)/
+
+  // === 1. Захватываем всё после "=>", включая новые строки, с учётом всех вариантов параметров ===
+  // Паттерн: /^\s*(?:\(\s*[\w$]*\s*\)|[\w$]+)\s*=>\s*([\s\S]+)$/
+  const arrowMatch = fnString.match(
+    /^\s*(?:\(\s*[\w$]*\s*\)|[\w$]+)\s*=>\s*([\s\S]+)$/
   );
-  if (arrowWithoutBracesMatch) {
-    const rawPath = arrowWithoutBracesMatch[1];
-    return rawPath.replace(/\[(\w+)\]/g, ".$1");
+  if (!arrowMatch) {
+    throw new Error(
+      "Не удалось распарсить стрелочную функцию — ожидается синтаксис `() => ...`, `(t) => ...` или `t => ...`"
+    );
   }
 
-  // 2) Стрелочная функция с фигурными скобками: "() => { return object.key; }"
-  const arrowWithBracesMatch = fnString.match(
-    /^\(?\s*\)?\s*=>\s*\{\s*return\s+([\w$\.\[\]]+);?\s*\}/
-  );
-  if (arrowWithBracesMatch) {
-    const rawPath = arrowWithBracesMatch[1];
-    return rawPath.replace(/\[(\w+)\]/g, ".$1");
+  let rawExpr = arrowMatch[1].trim();
+
+  // === 2. Убираем внешние скобки, если они есть ===
+  if (rawExpr.startsWith("(") && rawExpr.endsWith(")")) {
+    rawExpr = rawExpr.slice(1, -1).trim();
   }
 
-  // 3) Обычная function-expression/declaration: "function() { return object.key; }"
-  const funcMatch = fnString.match(/return\s+([\w$\.\[\]]+);?/);
-  if (funcMatch) {
-    const rawPath = funcMatch[1];
-    return rawPath.replace(/\[(\w+)\]/g, ".$1");
+  // === 3. Убираем пробелы/переносы строк, чтобы получить компактный путь ===
+  let compactPath = rawExpr.replace(/\s+/g, "");
+
+  // === 4. Разбиваем конструкции "[expr1,expr2]" → "[expr1][expr2]" пока есть запятая внутри ===
+  const commaInBracket = /\[([^\[\]]+),([^\[\]]+)\]/;
+  while (commaInBracket.test(compactPath)) {
+    compactPath = compactPath.replace(/\[([^\[\]]+),([^\[\]]+)\]/g, "[$1][$2]");
   }
 
-  throw new Error(
-    "Не удалось распарсить путь к свойству из переданной функции."
+  // === 5. Если после этого нет ни одного t(...), — просто обрабатываем статические индексы и возвращаем ===
+  const tCallSimple = /t\(\s*([^\)]+)\s*\)/;
+  if (!tCallSimple.test(compactPath)) {
+    let staticPath = compactPath
+      .replace(/\[['"]([\w$]+)['"]\]/g, ".$1") // ['foo'] → .foo
+      .replace(/\[([\w$]+)\]/g, ".$1"); // [123] или [foo] → .123 / .foo
+    if (staticPath.startsWith(".")) {
+      staticPath = staticPath.slice(1);
+    }
+    return staticPath;
+  }
+
+  // === 6. Собираем все выражения внутри t(...) по порядку ===
+  const argNames: string[] = [];
+  const tCallGlobal = /t\(\s*([^\)]+)\s*\)/g;
+  let match: RegExpExecArray | null;
+  while ((match = tCallGlobal.exec(compactPath)) !== null) {
+    argNames.push(match[1]); // например "address.test" или "32"
+  }
+
+  // === 7. Подготавливаем массив dynamicValues (хранит пары ["t(expr)", value]) ===
+  const dynamicValues: Array<[string, unknown]> = [];
+  let callCount = 0;
+
+  // === 8. Дженерик-функция t: запоминает пары ["t(expr)", capturedValue] и возвращает capturedValue ===
+  function t<K>(capturedValue: K): K {
+    const expression = argNames[callCount];
+    dynamicValues.push([`t(${expression})`, capturedValue]);
+    callCount++;
+    return capturedValue;
+  }
+
+  // === 9. Вызываем fn(t), чтобы заполнить dynamicValues (игнорируем возможные ошибки доступа) ===
+  try {
+    fn(t as any);
+  } catch {
+    // Просто игнорируем, если fn пыталась обратиться к реальным объектам вне области.
+  }
+
+  // === 10. Строим словарь expression → value ===
+  const nameToValue: Record<string, unknown> = {};
+  for (const [callExpr, val] of dynamicValues) {
+    const expr = callExpr.slice(2, -1); // "address.test" или "32"
+    nameToValue[expr] = val;
+  }
+
+  // === 11. Заменяем каждый t(expr) на полученное значение ===
+  let replacedPath = compactPath.replace(
+    /t\(\s*([^\)]+)\s*\)/g,
+    (_all, expr) => {
+      const v = nameToValue[expr];
+      return v === undefined ? "undefined" : String(v);
+    }
   );
+
+  // === 12. Дальше обрабатываем статические индексы: ['foo'] → .foo, [123] → .123 ===
+  replacedPath = replacedPath
+    .replace(/\[['"]([\w$]+)['"]\]/g, ".$1")
+    .replace(/\[([\w$]+)\]/g, ".$1");
+
+  // === 13. Убираем двойные точки и ведущую точку ===
+  const noDoubleDots = replacedPath.replace(/\.\./g, ".");
+  const normalized = noDoubleDots.startsWith(".")
+    ? noDoubleDots.slice(1)
+    : noDoubleDots;
+
+  // Возвращаем только итоговую строку:
+  return normalized;
 }
 
 /**
@@ -116,23 +186,47 @@ export function getStringPath<T extends object>(
 }
 
 /**
- * Преобразует CacheKey (примитив, функция или массив) в строку:
- * - Если это массив — склеиваем все элементы через точку.
- * - Если это функция — получаем dot-строку через getStringPath.
- * - Иначе (string|number|boolean|null|undefined) приводим к String().
+ * Приводит CacheKey к “одиночной” строке.
+ *
+ * Теперь, если мы видим функцию, чьё имя первого аргумента — "t",
+ * считаем её Accessor’ом и разбираем через getStringPath.
+ * Если же имя первого аргумента — что-то другое (например, "store" или "prevState"),
+ * считаем, что это функция вида (store) => строка, вызываем её и берём результат.
  */
 export function normalizeCacheKey<T>(
   cacheKey: CacheKey<T>,
   store: ObservableStore<T>
 ): string {
   if (Array.isArray(cacheKey)) {
-    return cacheKey.map((k) => normalizeCacheKey(k, store)).join(".");
+    return cacheKey
+      .map((k) => normalizeCacheKey(k, store))
+      .filter((s) => s !== "")
+      .join(".");
   }
+
   if (typeof cacheKey === "function") {
-    const pathStr = getStringPath(cacheKey as Accessor<any>);
-    return pathStr;
+    const fnString = cacheKey.toString().trim();
+    // Простейшая проверка на “Accessor” — смотрим, начинается ли функция примерно так:
+    //   (t) => …   или   t => …   или   function(t) { … }
+    // Можно уточнить регулярку, но для примера:
+    const accessorPattern = /^\s*(?:\(\s*t\s*\)|t)\s*=>/;
+
+    if (accessorPattern.test(fnString)) {
+      const pathStr = getStringPath(cacheKey as any);
+      return pathStr;
+    } else {
+      try {
+        const result = (cacheKey as (state: T) => unknown)(store.state);
+        return String(result);
+      } catch {
+        return "";
+      }
+    }
   }
-  return String(cacheKey);
+
+  // --- 3) Иначе (примитив: string | number | boolean | null | undefined) —
+  //     просто приводим к строке. ---
+  return cacheKey == null ? "" : String(cacheKey);
 }
 
 /**

@@ -36,7 +36,7 @@ export function createReactStore<T extends object>(
   /**
    * Хук для подписки на несколько путей в сторе
    */
-  function useStore<P extends Array<string | Accessor<any>>>(
+  function useStore<P extends Array<string | Accessor<T>>>(
     paths: [...P],
     options?: { cacheKeys?: CacheKey<T>[] }
   ): UseStoreReturnType<P> {

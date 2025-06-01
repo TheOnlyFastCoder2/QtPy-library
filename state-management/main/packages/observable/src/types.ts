@@ -2,9 +2,9 @@
 
 /**
  * Тип функции-доступа (Accessor), возвращающей значение из состояния.
- * Например: () => state.user.name
+ * Например: (t) => state.user.board[0][t(dynamicValue)]
  */
-export type Accessor<T> = () => T;
+export type Accessor<T> = (t: <K>(arg: K) => K) => T;
 
 /**
  * Примитивные типы значений, поддерживаемые хранилищем.
@@ -27,6 +27,7 @@ export type CacheKey<T> =
   | boolean
   | null
   | undefined
+  | Accessor<T>
   | ((store: T) => string)
   | Array<CacheKey<T>>;
 

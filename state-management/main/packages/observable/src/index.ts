@@ -181,7 +181,7 @@ export function createObservableStore<T extends object>(
         if (batching) {
           currentPending()!.set(fullPath, value);
         } else {
-          doUpdate(fullPath, value);
+          store.update(fullPath, value);
         }
         return true;
       },
