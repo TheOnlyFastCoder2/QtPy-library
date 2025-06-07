@@ -1,6 +1,12 @@
 // utils.tsx
 
-import { Accessor, CacheKey, ObservableStore } from "./types";
+import {
+  Accessor,
+  CacheKey,
+  ObservableStore,
+  MaxDepth,
+  SafePaths,
+} from "./types";
 
 /**
  * То же, что раньше: внутри собираются вызовы t(<expr>) и записываются в dynamicValues,
@@ -13,7 +19,9 @@ import { Accessor, CacheKey, ObservableStore } from "./types";
  *   - u => u.arr[0]
  * @returns Строка вида "obj.foo.123.456" или "obj.foo.bar"
  */
-export function getStringOfObject<T>(fn: Accessor<T>): string {
+export function getStringOfObject<T, D extends number = MaxDepth>(
+  fn: Accessor<T>
+): SafePaths<T, D> {
   const fnString = fn.toString().trim();
 
   // === 1. Захватываем всё после "=>", включая новые строки, с учётом всех вариантов параметров ===
@@ -52,7 +60,7 @@ export function getStringOfObject<T>(fn: Accessor<T>): string {
     if (staticPath.startsWith(".")) {
       staticPath = staticPath.slice(1);
     }
-    return staticPath;
+    return staticPath as SafePaths<T, D>;
   }
 
   // === 6. Собираем все выражения внутри t(...) по порядку ===
@@ -110,7 +118,7 @@ export function getStringOfObject<T>(fn: Accessor<T>): string {
     : noDoubleDots;
 
   // Возвращаем только итоговую строку:
-  return normalized;
+  return normalized as SafePaths<T, D>;
 }
 
 /**
@@ -159,7 +167,7 @@ export function getStringPath<T extends object>(
     full = path;
   } else {
     // path — функция-доступ
-    full = getStringOfObject(path as Accessor<any>);
+    full = getStringOfObject<T>(path as Accessor<any>);
   }
 
   // 1) Ищем "$." и обрезаем всё до и включая "$."
@@ -193,39 +201,43 @@ export function getStringPath<T extends object>(
  * Если же имя первого аргумента — что-то другое (например, "store" или "prevState"),
  * считаем, что это функция вида (store) => строка, вызываем её и берём результат.
  */
-export function normalizeCacheKey<T>(
-  cacheKey: CacheKey<T>,
-  store: ObservableStore<T>
+export function normalizeCacheKey<T, D extends number = MaxDepth>(
+  cacheKey: CacheKey<T, D>,
+  store: ObservableStore<T, D>
 ): string {
+  // 1. Массив ключей (групповая инвалидация)
   if (Array.isArray(cacheKey)) {
     return cacheKey
-      .map((k) => normalizeCacheKey(k, store))
+      .map((key) => normalizeCacheKey<T, D>(key, store))
       .filter((s) => s !== "")
       .join(".");
   }
 
+  // 2. Функция (или Accessor)
   if (typeof cacheKey === "function") {
     const fnString = cacheKey.toString().trim();
-    // Простейшая проверка на “Accessor” — смотрим, начинается ли функция примерно так:
-    //   (t) => …   или   t => …   или   function(t) { … }
-    // Можно уточнить регулярку, но для примера:
+
+    // Простейшая эвристика: является ли это Accessor
     const accessorPattern = /^\s*(?:\(\s*t\s*\)|t)\s*=>/;
 
     if (accessorPattern.test(fnString)) {
-      const pathStr = getStringPath(cacheKey as any);
-      return pathStr;
-    } else {
       try {
-        const result = (cacheKey as (state: T) => unknown)(store.state);
-        return String(result);
+        return getStringPath(cacheKey as Accessor<any>);
       } catch {
         return "";
       }
     }
+
+    // Обычная функция
+    try {
+      const result = (cacheKey as (state: T) => unknown)(store.state);
+      return result != null ? String(result) : "";
+    } catch {
+      return "";
+    }
   }
 
-  // --- 3) Иначе (примитив: string | number | boolean | null | undefined) —
-  //     просто приводим к строке. ---
+  // 3. Примитив (string | number | boolean | null | undefined)
   return cacheKey == null ? "" : String(cacheKey);
 }
 

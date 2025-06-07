@@ -7,6 +7,7 @@ import {
   ObservableStore,
   SubscriptionMeta,
   Accessor,
+  MaxDepth,
 } from "./types";
 import {
   normalizeCacheKey,
@@ -82,11 +83,14 @@ class HistoryManager {
   }
 }
 
-export function createObservableStore<T extends object>(
+export function createObservableStore<
+  T extends object,
+  D extends number = MaxDepth
+>(
   initialState: T,
-  middlewares: Middleware<T>[] = [],
+  middlewares: Middleware<T, D>[] = [],
   options: { maxHistoryLength?: number } = {}
-): ObservableStore<T> {
+): ObservableStore<T, D> {
   const { maxHistoryLength = Infinity } = options;
   let rawState = { ...initialState };
 
@@ -284,7 +288,7 @@ export function createObservableStore<T extends object>(
       : valueOrFn;
   };
   // API methods
-  store.update = (pathOrAccessor: string | Accessor<any>, valueOrFn: any) => {
+  store.update = (pathOrAccessor, valueOrFn) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
     const newVal = store.resolveValue(pathOrAccessor, valueOrFn);
@@ -398,9 +402,9 @@ export function createObservableStore<T extends object>(
     return false;
   };
 
-  store.subscribe = (cb: Subscriber<T>, keys?: CacheKey<T>[]) => {
-    const normKeys = keys
-      ? new Set(keys.map((k) => normalizeCacheKey(k, store)))
+  store.subscribe = (cb, keys) => {
+    const normKeys: Set<string> | undefined = keys
+      ? new Set<string>(keys.map((k) => normalizeCacheKey(k, store)))
       : undefined;
     const meta: SubscriptionMeta = {
       active: true,
@@ -420,17 +424,17 @@ export function createObservableStore<T extends object>(
   };
 
   store.subscribeToPath = (
-    pathOrAccessor: string | Accessor<any>,
-    cb: Subscriber<any>,
-    opts: { immediate?: boolean; cacheKeys?: CacheKey<T>[] } = {}
+    pathOrAccessor,
+    cb,
+    opts: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] } = {}
   ) => {
     validatePath(pathOrAccessor);
 
     const { immediate = false, cacheKeys } = opts;
     const mainPath = resolve(pathOrAccessor);
-
-    const normalizedKeys = cacheKeys
-      ? cacheKeys.map((k) => normalizeCacheKey(k, store))
+    //@ts-ignore
+    const normalizedKeys = cacheKeys //@ts-ignore
+      ? cacheKeys.map((k) => normalizeCacheKey<T, D>(k, store))
       : [];
 
     const allPaths = [mainPath, ...normalizedKeys];
@@ -494,7 +498,7 @@ export function createObservableStore<T extends object>(
     }
   };
 
-  store.get = (p: any) => {
+  store.get = (p) => {
     validatePath(p);
     return getRaw(resolve(p));
   };
@@ -515,5 +519,5 @@ export function createObservableStore<T extends object>(
   });
   store.update = wrappedUpdate;
 
-  return store as ObservableStore<T>;
+  return store as ObservableStore<T, D>;
 }

@@ -10,7 +10,7 @@
 Под капотом:
 
 1. Мы создаём `ObservableStore` из библиотеки `@qtpy/state-management-observable` с помощью `createObservableStore(initialState, middlewares, options)`.
-2. Затем оборачиваем его React-хуками, основанными на `useSyncExternalStore`, `useMemo`, `useCallback` и других стандартных реактивных инструментах React.
+2. Затем оборачиваем его React-хуками, основанными на `useSyncExternalStore` и подходе с `ref`-ами для хранения актуальных путей и ключей, без дополнительных мемоизаций функций.
 3. Вся подписка происходит через массивы путей вида `Array<string | Accessor<any>>`. Это позволяет подписываться на любое вложенное поле или вычисляемое значение.
 
 Такой подход сохраняет всё преимущество «чистого» ядра `ObservableStore` (гибкие подписки с точностью до пути, middleware, batching, undo/redo и асинхронные обновления), при этом даёт знакомый интерфейс React-хуков и минимизирует boilerplate в компонентах.
@@ -21,13 +21,7 @@
 
 ```ts
 // createReactStore.ts
-import {
-  useSyncExternalStore,
-  useMemo,
-  useRef,
-  useCallback,
-  useEffect,
-} from "react";
+import { useSyncExternalStore, useRef, useEffect } from "react";
 import { createObservableStore } from "@qtpy/state-management-observable";
 import {
   Accessor,
@@ -40,16 +34,15 @@ export { createObservableStore };
 
 /**
  * Создаёт ObservableStore и оборачивает его React-хуками
- * @param initialState — начальное состояние
- * @param middlewares — опциональный массив middleware
- * @param options — опции history и т.п.
+ * @param initialState - начальное состояние
+ * @param middlewares - опциональный массив middleware
+ * @param options - опции history
  */
 export function createReactStore<T extends object>(
   initialState: T,
   middlewares: Middleware<T>[] = [],
   options: ReactStoreOptions = {}
 ): ReactStore<T> {
-  // 1) Создаём базовый store
   const baseStore = createObservableStore(
     initialState,
     middlewares,
@@ -58,83 +51,85 @@ export function createReactStore<T extends object>(
   const store = baseStore as ReactStore<T>;
 
   /**
-   * Хук для подписки на несколько путей в сторе
-   * @param paths — массив строк (пути) или Accessor-функций
-   * @param options.cacheKeys — дополнительные cacheKeys для фильтрации
-   * @returns массив значений по каждому из paths
+   * Хук для подписки на несколько путей в сторе, без дополнительных мемоизаций
    */
-  function useStore<P extends Array<string | Accessor<any>>>(
+  function useStore<P extends Array<string | Accessor<T>>>(
     paths: [...P],
     options?: { cacheKeys?: CacheKey<T>[] }
   ): UseStoreReturnType<P> {
     const cacheKeys = options?.cacheKeys ?? [];
 
-    // Объединяем cacheKeys и пути для подписки
-    const keys = useMemo(() => [...cacheKeys, ...paths], [cacheKeys, paths]);
+    // ----------------------------------------------------------------------
+    // 1. Храним актуальные paths и cacheKeys в ref
+    // ----------------------------------------------------------------------
+    const pathsRef = useRef<[...(string | Accessor<T>)[]]>(paths);
+    const keysRef = useRef<CacheKey<T>[]>(cacheKeys);
+    pathsRef.current = paths;
+    keysRef.current = cacheKeys;
 
-    // Функция, возвращающая актуальные значения по paths
-    const getSnapshotRaw = useCallback(
-      () => paths.map((p) => store.get(p)) as UseStoreReturnType<P>,
-      [paths]
+    // ----------------------------------------------------------------------
+    // 2. Реф для последнего снапшота
+    // ----------------------------------------------------------------------
+    const snapshotRef = useRef<UseStoreReturnType<P>>(
+      // инициализируем один раз: на момент первого рендера
+      paths.map((p) => store.get(p)) as UseStoreReturnType<P>
     );
 
-    // Реф для хранение последнего снапшота
-    const snapshotRef = useRef<UseStoreReturnType<P>>(getSnapshotRaw());
+    // ----------------------------------------------------------------------
+    // 3. Функция getSnapshot: просто возвращает snapshotRef.current
+    // ----------------------------------------------------------------------
+    const getSnapshot = () => snapshotRef.current;
 
-    // subscribe для useSyncExternalStore
-    const subscribe = useCallback(
-      (onStoreChange: () => void) => {
-        const unsubscribe = store.subscribe(() => {
-          const nextSnap = getSnapshotRaw();
-          const changed = nextSnap.some(
-            (v, i) => !Object.is(v, snapshotRef.current[i])
-          );
-          if (changed) {
-            snapshotRef.current = nextSnap;
-            onStoreChange();
-          }
-        }, keys);
-        return unsubscribe;
-      },
-      [getSnapshotRaw, keys]
-    );
+    // ----------------------------------------------------------------------
+    // 4. Функция для подписки (subscribe), тоже «стабильная»
+    // ----------------------------------------------------------------------
+    const subscribe = (onStoreChange: () => void) => {
+      const unsubscribe = store.subscribe(() => {
+        const currentPaths = pathsRef.current;
+        const nextSnapshot = currentPaths.map((p) =>
+          store.get(p)
+        ) as UseStoreReturnType<P>;
+        const changed = nextSnapshot.some(
+          (v, i) => !Object.is(v, snapshotRef.current[i])
+        );
+        if (changed) {
+          snapshotRef.current = nextSnapshot;
+          onStoreChange();
+        }
+      }, keysRef.current);
 
-    const getSnapshot = useCallback(() => snapshotRef.current, []);
+      return unsubscribe;
+    };
+
+    // ----------------------------------------------------------------------
+    // 5. Вызываем useSyncExternalStore с «стабильными» функциями
+    // ----------------------------------------------------------------------
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   }
 
   /**
-   * Хук для одного поля: возвращает [value, setValue]
-   * @param path — строка (например, "user.age") или Accessor
-   * @param options.cacheKeys — дополнительные cacheKeys
+   * Хук для одного поля: [value, setValue]
    */
   function useField<P extends string | Accessor<any>>(
     path: P,
     options?: { cacheKeys?: CacheKey<T>[] }
   ) {
     const [value] = useStore([path], options as any);
-    const setValue = useCallback(
-      (newValue: P extends Accessor<infer V> ? V : unknown) => {
-        store.update(path, newValue as any);
-      },
-      [path]
-    );
+    const setValue = (newValue: P extends Accessor<infer V> ? V : unknown) => {
+      store.update(path, newValue as any);
+    };
     return [value, setValue] as const;
   }
 
   /**
-   * Принудительная инвалидизация cacheKeys
-   * @param cacheKeys — массив cacheKey (строк или Accessor-ов)
+   * Инвалидация кеша для перерисовки компонентов
    */
   function reloadComponents(cacheKeys: CacheKey<T>[]) {
     cacheKeys.forEach((key) => store.invalidate(key));
   }
 
   /**
-   * Хук-эффект: срабатывает, когда хотя бы одно значение из paths поменялось
-   * @param paths — массив строк или Accessor-ов
-   * @param effect — функция, получающая массив текущих значений
-   * @param options.cacheKeys — дополнительные cacheKeys
+   * Хук: вызывает effect-калбэк при изменении значений по указанным путям.
    */
   function useStoreEffect<P extends Array<string | Accessor<any>>>(
     paths: [...P],
@@ -148,10 +143,10 @@ export function createReactStore<T extends object>(
     }, [effect, ...values]);
   }
 
+  store.useEffect = useStoreEffect;
   store.useStore = useStore;
   store.useField = useField;
   store.reloadComponents = reloadComponents;
-  store.useEffect = useStoreEffect;
 
   return store;
 }

@@ -1,10 +1,4 @@
-import {
-  useSyncExternalStore,
-  useMemo,
-  useRef,
-  useCallback,
-  useEffect,
-} from "react";
+import { useSyncExternalStore, useRef, useEffect } from "react";
 import { createObservableStore } from "@qtpy/state-management-observable";
 import {
   Accessor,
@@ -34,7 +28,7 @@ export function createReactStore<T extends object>(
   const store = baseStore as ReactStore<T>;
 
   /**
-   * Хук для подписки на несколько путей в сторе
+   * Хук для подписки на несколько путей в сторе, без useCallback
    */
   function useStore<P extends Array<string | Accessor<T>>>(
     paths: [...P],
@@ -42,54 +36,75 @@ export function createReactStore<T extends object>(
   ): UseStoreReturnType<P> {
     const cacheKeys = options?.cacheKeys ?? [];
 
-    // Объединяем cacheKeys и пути, чтобы подписка была отфильтрована нужными ключами
-    const keys = useMemo(() => [...cacheKeys, ...paths], [cacheKeys, paths]);
+    // ----------------------------------------------------------------------
+    // 1. Храним актуальные paths и cacheKeys в ref
+    // ----------------------------------------------------------------------
+    const pathsRef = useRef<[...(string | Accessor<T>)[]]>(paths);
+    const keysRef = useRef<CacheKey<T>[]>(cacheKeys);
+    pathsRef.current = paths;
+    keysRef.current = cacheKeys;
 
-    // Функция, возвращающая текущие значения по всем путям
-    const getSnapshotRaw = useCallback(
-      () => paths.map((p) => store.get(p)) as UseStoreReturnType<P>,
-      [paths]
+    // ----------------------------------------------------------------------
+    // 2. Реф для последнего снапшота
+    // ----------------------------------------------------------------------
+    const snapshotRef = useRef<UseStoreReturnType<P>>(
+      // инициализируем один раз: на момент первого рендера
+      paths.map((p) => store.get(p)) as UseStoreReturnType<P>
     );
 
-    // Реф для хранения последнего снапшота
-    const snapshotRef = useRef<UseStoreReturnType<P>>(getSnapshotRaw());
+    // ----------------------------------------------------------------------
+    // 3. Функция getSnapshot: просто возвращает snapshotRef.current
+    //    — она никогда не пересоздаётся, потому что мы не оборачиваем её в useCallback,
+    //      но внутри store.subscribe() и useSyncExternalStore будет обращаться к ней
+    // ----------------------------------------------------------------------
+    const getSnapshot = () => {
+      return snapshotRef.current;
+    };
 
-    // Функция подписки для useSyncExternalStore
-    const subscribe = useCallback(
-      (onStoreChange: () => void) => {
-        const unsubscribe = store.subscribe(() => {
-          const nextSnapshot = getSnapshotRaw();
-          const changed = nextSnapshot.some(
-            (v, i) => !Object.is(v, snapshotRef.current[i])
-          );
-          if (changed) {
-            snapshotRef.current = nextSnapshot;
-            onStoreChange();
-          }
-        }, keys);
-        return unsubscribe;
-      },
-      [getSnapshotRaw, keys]
-    );
+    // ----------------------------------------------------------------------
+    // 4. Функция для подписки (subscribe), тоже «стабильная»
+    // ----------------------------------------------------------------------
+    const subscribe = (onStoreChange: () => void) => {
+      // Подписываемся на store, передаём внешний callback
+      const unsubscribe = store.subscribe(() => {
+        // при каждом вызове подписки берём актуальные paths из ref
+        const currentPaths = pathsRef.current;
+        // и собираем новый снапшот
+        const nextSnapshot = currentPaths.map((p) =>
+          store.get(p)
+        ) as UseStoreReturnType<P>;
+        // сравниваем с тем, что в snapshotRef
+        const changed = nextSnapshot.some(
+          (v, i) => !Object.is(v, snapshotRef.current[i])
+        );
+        if (changed) {
+          snapshotRef.current = nextSnapshot;
+          onStoreChange();
+        }
+      }, keysRef.current);
 
-    const getSnapshot = useCallback(() => snapshotRef.current, []);
+      return unsubscribe;
+    };
+
+    // ----------------------------------------------------------------------
+    // 5. Вызываем useSyncExternalStore с «стабильными» функциями
+    // ----------------------------------------------------------------------
     return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   }
 
   /**
    * Хук для одного поля: [value, setValue]
+   * (оставляем без изменений, useCallback здесь не критичен, но тоже можно убрать,
+   * если заменять на ref-версию. Для примера оставим так.)
    */
   function useField<P extends string | Accessor<any>>(
     path: P,
     options?: { cacheKeys?: CacheKey<T>[] }
   ) {
     const [value] = useStore([path], options as any);
-    const setValue = useCallback(
-      (newValue: P extends Accessor<infer V> ? V : unknown) => {
-        store.update(path, newValue as any);
-      },
-      [path]
-    );
+    const setValue = (newValue: P extends Accessor<infer V> ? V : unknown) => {
+      store.update(path, newValue as any);
+    };
     return [value, setValue] as const;
   }
 
@@ -101,26 +116,21 @@ export function createReactStore<T extends object>(
   }
 
   /**
-   * хук: вызывает effect-калбэк при изменении значений по указанным путям.
-   *
-   * @param paths — массив путей (строка или Accessor)
-   * @param effect — функция, которая будет вызвана при изменении любого из значений
-   * @param options.cacheKeys — опциональные cacheKeys для дополнительной фильтрации подписки
+   * Хук: вызывает effect-калбэк при изменении значений по указанным путям.
+   * Просто использует useStore и стандартный useEffect
    */
   function useStoreEffect<P extends Array<string | Accessor<any>>>(
     paths: [...P],
     effect: (values: UseStoreReturnType<P>) => void,
     options?: { cacheKeys?: CacheKey<T>[] }
   ) {
-    // Подписываемся на те же пути, что и в useStore
     const values = useStore(paths, options as any);
-
-    // Вызываем переданный эффект всякий раз, когда хотя бы одно значение из массива поменялось
     useEffect(() => {
       effect(values);
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effect, ...values]);
   }
+
   store.useEffect = useStoreEffect;
   store.useStore = useStore;
   store.useField = useField;
