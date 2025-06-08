@@ -4,7 +4,7 @@
  * Примитивные типы, не участвующие в рекурсивной генерации путей.
  */
 
-export type MaxDepth = 3;
+export type MaxDepth = 0;
 
 /**
  * Генерация строковых путей к значениям в массиве с поддержкой кортежей
@@ -94,14 +94,6 @@ type TypeError<Message extends string> = {
   __error__: Message;
 };
 
-type AssertValidPath<T, P extends string, D extends number> = ExtractPathType<
-  T,
-  P,
-  D
-> extends TypeError<infer Msg>
-  ? TypeError<Msg>
-  : ExtractPathType<T, P, D>;
-
 export type ValidUpdateValue<
   T,
   P extends string,
@@ -110,7 +102,9 @@ export type ValidUpdateValue<
   ? TypeError<"Invalid value type for this path">
   : SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>;
 
-export type PathOrError<T, P, D extends number> = P extends SafePaths<T, D>
+export type PathOrError<T, P, D extends number> = D extends 0
+  ? string // Заглушка: принимаем любые строки без валидации
+  : P extends SafePaths<T, D>
   ? P
   : P extends `${string}.${infer Rest}`
   ? TypeError<`Invalid path "${P}": unknown key or index "${Rest}"`>
@@ -143,7 +137,9 @@ export type PathExtract<
   D extends number,
   P extends string,
   V = undefined
-> = P extends SafePaths<T, D>
+> = D extends 0
+  ? any // Заглушка: разрешаем любые пути
+  : P extends SafePaths<T, D>
   ? V extends undefined
     ? ExtractPathType<T, P, D>
     : AssertValueAssignable<T, P, D, V>
@@ -286,9 +282,9 @@ export type Unsubscribe = () => void;
  */
 export interface UpdateFunction<T, D extends number = MaxDepth> {
   // строковый путь
-  <P extends SafePaths<T, D>>(
-    path: P,
-    value: SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>
+  <P extends string, V>(
+    path: PathOrError<T, P, D>,
+    value: PathExtract<T, D, P, V>
   ): void;
 
   // accessor-функция
@@ -302,10 +298,10 @@ export interface UpdateFunction<T, D extends number = MaxDepth> {
  * @template T - Тип корневого состояния.
  */
 export type Middleware<T, D extends number = MaxDepth> = (
-  store: ObservableStore<T, D>,
-  next: UpdateFunction<T, D>
-) => UpdateFunction<T, D>;
-
+  store: ObservableStore<T, DefaultableDepth<D>>,
+  next: UpdateFunction<T, DefaultableDepth<D>>
+) => UpdateFunction<T, DefaultableDepth<D>>;
+export type DefaultableDepth<D> = [D] extends [never] ? 0 : D;
 /**
  * Статистика использования памяти и подписок в хранилище.
  */
@@ -331,14 +327,13 @@ export type SubscriptionMeta = {
   /** Необязательный набор нормализованных cacheKeys для фильтрации. */
   cacheKeys?: Set<string>;
 };
-type OnlyStringPaths<T, D extends number> = Extract<SafePaths<T, D>, string>;
 
 /**
  * Интерфейс реактивного хранилища состояния.
  *
  * @template T - Тип состояния
  */
-export interface ObservableStore<T, D extends number = 0> {
+export interface ObservableStore<T, D extends number = MaxDepth> {
   /** Прокси-объект состояния. */
   readonly state: T;
 

@@ -11,6 +11,7 @@ import {
   ExtractPathType,
   AssertValueAssignable,
   PathExtract,
+  DefaultableDepth,
 } from "./types";
 import {
   normalizeCacheKey,
@@ -86,12 +87,9 @@ class HistoryManager {
   }
 }
 
-export function createObservableStore<
-  T extends object,
-  D extends number = MaxDepth
->(
+export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
-  middlewares: Middleware<T, D>[] = [],
+  middlewares: Middleware<T>[] = [],
   options: { maxHistoryLength?: number } = {}
 ): ObservableStore<T, D> {
   const { maxHistoryLength = Infinity } = options;
