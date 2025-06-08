@@ -167,7 +167,7 @@ export function getStringPath<T extends object>(
     full = path;
   } else {
     // path — функция-доступ
-    full = getStringOfObject<T>(path as Accessor<any>);
+    full = getStringOfObject<T>(path) as any;
   }
 
   // 1) Ищем "$." и обрезаем всё до и включая "$."

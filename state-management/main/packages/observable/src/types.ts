@@ -1,19 +1,6 @@
 // types.tsx
 
 /**
- * Функция обновления: принимает текущее значение по пути и возвращает новое.
- * Используется для функционального обновления значения в хранилище.
- *
- * @template T Тип всего состояния
- * @template P Путь в состоянии
- * @param currentValue Текущее значение по указанному пути
- * @returns Новое значение, которое будет установлено
- */
-
-export type UpdateFn<T, P extends Paths<T, D>, D extends number = 5> = (
-  prev: ExtractPathType<T, P, D>
-) => ExtractPathType<T, P, D>;
-/**
  * Примитивные типы, не участвующие в рекурсивной генерации путей.
  */
 
@@ -39,25 +26,61 @@ export type IsTuple<T> = T extends readonly any[]
   : false;
 
 export type ArrayPaths<T, Depth extends number> = Depth extends 0
-  ? never
+  ? TypeError<"Maximum depth exceeded in array path">
   : T extends readonly (infer U)[]
   ? IsTuple<T> extends true
-    ?
-        | LiteralIndices<T["length"]>
-        | `${LiteralIndices<T["length"]>}.${Paths<U, Depth>}`
-    : "0" | `0.${Paths<U, Decrement<Depth>>}`
-  : never;
+    ? TupleArrayPaths<T, U, Depth>
+    : RegularArrayPaths<U, Depth>
+  : TypeError<"ArrayPaths used on a non-array type">;
 
+type TupleArrayPaths<T extends readonly any[], U, Depth extends number> =
+  | LiteralIndices<T["length"]>
+  | (Paths<U, Decrement<Depth>> extends infer Sub
+      ? Sub extends string
+        ? `${LiteralIndices<T["length"]>}.${Sub}`
+        : TypeError<"Invalid subpath inside tuple array">
+      : TypeError<"Failed to infer subpaths from tuple array">);
+
+type RegularArrayPaths<U, Depth extends number> =
+  | "0"
+  | (Paths<U, Decrement<Depth>> extends infer Sub
+      ? Sub extends string
+        ? `0.${Sub}`
+        : TypeError<"Invalid subpath inside regular array">
+      : TypeError<"Failed to infer subpaths from regular array">);
 /**
  * Рекурсивная генерация строковых путей к полям объекта с улучшенной поддержкой массивов
  */
-export type ObjectPaths<T, Depth extends number> = {
-  [K in keyof T & string]: T[K] extends Primitive
-    ? K
-    : T[K] extends readonly any[]
-    ? K | `${K}.${ArrayPaths<T[K], Decrement<Depth>>}`
-    : K | `${K}.${Paths<T[K], Decrement<Depth>>}`;
-}[keyof T & string];
+
+type IsTypeError<T> = T extends TypeError<any> ? true : false;
+
+type IfValid<T, Fallback = never> = IsTypeError<T> extends true ? Fallback : T;
+
+export type ObjectPaths<T, Depth extends number> = Depth extends 0
+  ? TypeError<"Maximum depth exceeded in object path">
+  : {
+      [K in keyof T & string]:
+        | K
+        | (T[K] extends Primitive
+            ? never
+            : T[K] extends readonly any[]
+            ? IfValid<
+                ArrayPaths<T[K], Decrement<Depth>>,
+                TypeError<`Invalid nested array path at key '${K}'`>
+              > extends infer Sub
+              ? Sub extends string
+                ? `${K}.${Sub}`
+                : TypeError<`Invalid array subpath at '${K}'`>
+              : never
+            : IfValid<
+                Paths<T[K], Decrement<Depth>>,
+                TypeError<`Invalid nested object path at key '${K}'`>
+              > extends infer Sub
+            ? Sub extends string
+              ? `${K}.${Sub}`
+              : TypeError<`Invalid object subpath at '${K}'`>
+            : never);
+    }[keyof T & string];
 
 export type Paths<T, Depth extends number = MaxDepth> = Depth extends 0
   ? never
@@ -87,33 +110,48 @@ export type ValidUpdateValue<
   ? TypeError<"Invalid value type for this path">
   : SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>;
 
-export type PathOrAccessor<T, D extends number, P> = P extends string
-  ? AssertValidPath<T, P, D> extends TypeError<any>
-    ? never
-    : P
-  : P extends Accessor<infer R>
-  ? ExtractError<R> extends TypeError<any>
-    ? never
-    : P
-  : never;
+export type PathOrError<T, P, D extends number> = P extends SafePaths<T, D>
+  ? P
+  : P extends `${string}.${infer Rest}`
+  ? TypeError<`Invalid path "${P}": unknown key or index "${Rest}"`>
+  : SafePaths<T, D>;
 
-// Тип безопасного значения
-export type PathValue<T, D extends number, PathOrAcc> = PathOrAcc extends string
-  ? SafePaths<T, D>
-  : AccessorSafeExtract<PathOrAcc>;
+type IsPrimitive<T> = T extends Primitive ? true : false;
+
+export type AssertValueAssignable<
+  T,
+  P extends string,
+  D extends number,
+  V
+> = ExtractPathType<T, P, D> extends infer Extracted
+  ? Extracted extends TypeError<any>
+    ? Extracted
+    : IsPrimitive<Extracted> extends true
+    ? V extends Extracted
+      ? V
+      : TypeError<`Invalid value type for path "${P}"`>
+    : IsPrimitive<V> extends true
+    ? TypeError<`Cannot assign primitive to object path "${P}"`>
+    : V extends Extracted
+    ? V
+    : TypeError<`Invalid value type for path "${P}"`>
+  : TypeError<`Failed to infer type for path "${P}"`>;
 
 // Тип safe-extract значения
-type PathExtract<T, D extends number, PathOrAcc> = PathOrAcc extends string
-  ? AssertValidPath<T, PathOrAcc, D> extends TypeError<infer Msg>
-    ? TypeError<`Invalid path or value. ${Msg}`>
-    : AssertValueAssignable<T, PathOrAcc, D, any>
-  : ExtractError<PathOrAcc> extends TypeError<infer Msg>
-  ? TypeError<`Invalid path or value. ${Msg}`>
-  : PathOrAcc | ((prev: PathOrAcc) => PathOrAcc);
-
+export type PathExtract<
+  T,
+  D extends number,
+  P extends string,
+  V = undefined
+> = P extends SafePaths<T, D>
+  ? V extends undefined
+    ? ExtractPathType<T, P, D>
+    : AssertValueAssignable<T, P, D, V>
+  : TypeError<`Invalid path "${P}". This path does not exist in the state object.`>;
 /**
  * Улучшенное извлечение типа по пути с поддержкой кортежей
  */
+
 export type ExtractPathType<
   T,
   P extends string,
@@ -121,20 +159,39 @@ export type ExtractPathType<
 > = Depth extends 0
   ? TypeError<"Maximum depth exceeded">
   : P extends `${infer K}.${infer Rest}`
-  ? K extends keyof T
-    ? ExtractPathType<T[K], Rest, Decrement<Depth>>
-    : T extends readonly any[]
+  ? T extends readonly [...infer Elements] // Проверка на кортеж
+    ? K extends keyof Elements
+      ? ExtractPathType<Elements[K], Rest, Decrement<Depth>>
+      : K extends `${number}` // Если индекс — строка-число
+      ? Elements extends readonly (infer U)[] // Берем тип элемента
+        ? ExtractPathType<U, Rest, Decrement<Depth>>
+        : TypeError<`Index "${K}" is invalid`>
+      : TypeError<`Index "${K}" out of bounds in tuple`>
+    : T extends readonly any[] // Обычный массив (не кортеж)
     ? K extends `${number}`
-      ? ExtractPathType<T[number], Rest, Decrement<Depth>>
-      : TypeError<`Type mismatch at path`>
-    : TypeError<`Type mismatch at path`>
-  : P extends keyof T
-  ? T[P]
-  : T extends readonly any[]
+      ? T[number] extends infer U // Получаем тип элемента
+        ? ExtractPathType<U, Rest, Decrement<Depth>>
+        : never
+      : TypeError<`Invalid array index "${K}"`>
+    : K extends keyof T // Объекты и Record<string, ...>
+    ? ExtractPathType<T[K], Rest, Decrement<Depth>>
+    : TypeError<`Key "${K}" does not exist in object`>
+  : // Если путь без точки (конечный ключ)
+  T extends readonly [...infer Elements] // Кортеж
+  ? P extends keyof Elements
+    ? Elements[P]
+    : P extends `${number}`
+    ? Elements extends readonly (infer U)[]
+      ? U
+      : TypeError<`Index "${P}" is invalid`>
+    : TypeError<`Index "${P}" out of bounds in tuple`>
+  : T extends readonly any[] // Обычный массив
   ? P extends `${number}`
     ? T[number]
-    : TypeError<`Type mismatch at index`>
-  : TypeError<`Type mismatch at path`>;
+    : TypeError<`Invalid array index "${P}"`>
+  : P extends keyof T // Объекты и Record<string, ...>
+  ? T[P]
+  : TypeError<`Key "${P}" does not exist in object`>;
 //prettier-ignore
 export type Decrement<N extends number> = 
   N extends 30 ? 29 :
@@ -274,16 +331,7 @@ export type SubscriptionMeta = {
   /** Необязательный набор нормализованных cacheKeys для фильтрации. */
   cacheKeys?: Set<string>;
 };
-type ExtractError<R> = R extends TypeError<infer Msg> ? TypeError<Msg> : R;
-type IsAssignable<A, B> = A extends B ? true : false;
-type AssertValueAssignable<
-  T,
-  P extends string,
-  D extends number,
-  V
-> = IsAssignable<V, ExtractPathType<T, P, D>> extends true
-  ? V
-  : TypeError<`Invalid value type for path "${P}"`>;
+type OnlyStringPaths<T, D extends number> = Extract<SafePaths<T, D>, string>;
 
 /**
  * Интерфейс реактивного хранилища состояния.
@@ -299,94 +347,159 @@ export interface ObservableStore<T, D extends number = 0> {
 
   /**
    * Подписка на изменения состояния (глобально).
-   * @param callback - Колбэк, вызываемый при изменениях
-   * @param cacheKeys - Ключи кэша для фильтрации уведомлений
+   * @param callback - Колбэк, вызываемый при любом изменении состояния.
+   * @param cacheKeys - Ключи кэша для фильтрации уведомлений (необязательно).
    */
   subscribe(callback: Subscriber<T>, cacheKeys?: CacheKey<T, D>[]): Unsubscribe;
 
   /**
-   * Подписка на конкретный путь или accessor.
-   * @param path - Строка или функция-доступ
-   * @param callback - Колбэк, вызываемый при изменении по пути
-   * @param options - Настройки: immediate вызов, cacheKeys
+   * Подписка на изменения по строковому пути.
+   * @param path - Строка, указывающая на путь в состоянии.
+   * @param callback - Колбэк, вызываемый при изменении значения по этому пути.
+   * @param options - Опции подписки (immediate вызов, cacheKeys).
    */
-  subscribeToPath<PathOrAcc>(
-    path: PathValue<T, D, PathOrAcc>,
-    callback: PathExtract<T, D, PathOrAcc>,
+  subscribeToPath<P extends string, V = undefined>(
+    path: PathOrError<T, P, D>,
+    callback: (value: PathExtract<T, D, P, V>) => void,
     options?: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] }
   ): Unsubscribe;
 
   /**
-   * Получить значение по пути.
-   * @param path - Строка или функция-доступ
+   * Подписка на изменения по Accessor-функции.
+   * @param path - Функция доступа, указывающая на значение.
+   * @param callback - Колбэк, вызываемый при изменении.
+   * @param options - Опции подписки.
    */
-  get<PathOrAcc = SafePaths<T, D> | Accessor<any>>(
-    path: PathOrAcc
-  ): PathExtract<T, D, PathOrAcc>;
+  subscribeToPath<R>(
+    path: Accessor<R>,
+    callback: (value: R) => void,
+    options?: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] }
+  ): Unsubscribe;
 
   /**
-   * Обновить значение по пути.
-   * @param path - Строка или Accessor
-   * @param valueOrFn - Новое значение или функция от текущего
+   * Получить значение по строковому пути.
+   * @param path - Строка, представляющая путь в объекте состояния.
+   * @returns Значение по указанному пути.
    */
-  update<PathOrAcc>(
-    path: PathValue<T, D, PathOrAcc>,
-    valueOrFn: PathExtract<T, D, PathOrAcc>
+  get<P extends string>(path: PathOrError<T, P, D>): PathExtract<T, D, P>;
+
+  /**
+   * Получить значение по Accessor-функции.
+   * @param path - Accessor-функция, возвращающая значение из состояния.
+   * @returns Результат Accessor-функции.
+   */
+  get<R>(path: Accessor<R>): R;
+
+  /**
+   * Обновить значение по строковому пути.
+   * @param path - Путь к значению.
+   * @param valueOrFn - Новое значение или функция обновления.
+   */
+  update<P extends string, V>(
+    path: PathOrError<T, P, D>,
+    valueOrFn: PathExtract<T, D, P, V>
   ): void;
 
   /**
-   * Вычислить новое значение без его установки.
+   * Обновить значение по Accessor-функции.
+   * @param path - Accessor-функция, указывающая на значение.
+   * @param valueOrFn - Новое значение или функция обновления.
    */
-  resolveValue<PathOrAcc>(
-    path: PathValue<T, D, PathOrAcc>,
-    valueOrFn: PathExtract<T, D, PathOrAcc>
-  ): PathExtract<T, D, PathOrAcc>;
+  update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
 
   /**
-   * Отменить все или конкретные асинхронные обновления.
+   * Вычислить новое значение без его установки по строковому пути.
+   * @param path - Путь к значению.
+   * @param valueOrFn - Новое значение или функция вычисления.
+   * @returns Предполагаемое значение.
+   */
+  resolveValue<P extends string, V>(
+    path: PathOrError<T, P, D>,
+    valueOrFn: PathExtract<T, D, P, V>
+  ): PathExtract<T, D, P, V>;
+
+  /**
+   * Вычислить новое значение без его установки по Accessor.
+   * @param path - Accessor-функция.
+   * @param valueOrFn - Новое значение или функция вычисления.
+   * @returns Предполагаемое значение.
+   */
+  resolveValue<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): R;
+
+  /**
+   * Отменить все отложенные (асинхронные) обновления.
    */
   cancelAsyncUpdates(): void;
-  cancelAsyncUpdates(path: SafePaths<T, D> | Accessor<any>): void;
 
   /**
-   * Асинхронное обновление значения по пути.
+   * Отменить отложенные обновления по указанному пути.
+   * @param path - Строковый путь или Accessor.
    */
-  asyncUpdate<PathOrAcc>(
-    path: PathValue<T, D, PathOrAcc>,
+  cancelAsyncUpdates<P extends string>(
+    path: PathOrError<T, P, D> | Accessor<any>
+  ): void;
+
+  /**
+   * Асинхронно обновить значение по строковому пути.
+   * @param path - Путь к значению.
+   * @param asyncUpdater - Функция, возвращающая промис нового значения.
+   * @param options - Опции (например, отмена предыдущих).
+   */
+  asyncUpdate<P extends string, V>(
+    path: PathOrError<T, P, D>,
     asyncUpdater: (
-      current: PathExtract<T, D, PathOrAcc>,
+      current: PathExtract<T, D, P, V>,
       signal: AbortSignal
-    ) => Promise<PathExtract<T, D, PathOrAcc>>,
+    ) => Promise<PathExtract<T, D, P, V>>,
+    options?: { abortPrevious?: boolean }
+  ): Promise<void>;
+
+  /**
+   * Асинхронно обновить значение по Accessor.
+   * @param path - Accessor-функция.
+   * @param asyncUpdater - Асинхронная функция обновления.
+   * @param options - Опции (например, отмена предыдущих).
+   */
+  asyncUpdate<R>(
+    path: Accessor<R>,
+    asyncUpdater: (current: Accessor<R>, signal: AbortSignal) => Promise<R>,
     options?: { abortPrevious?: boolean }
   ): Promise<void>;
 
   /**
    * Откатить последнее изменение по пути.
+   * @param path - Путь или Accessor.
+   * @returns Был ли выполнен откат.
    */
-  undo(path: SafePaths<T, D> | Accessor<any>): boolean;
+  undo<P extends string>(path: PathOrError<T, P, D> | Accessor<any>): boolean;
 
   /**
-   * Повторить изменение, отменённое через undo.
+   * Повторить откат изменения по пути.
+   * @param path - Путь или Accessor.
+   * @returns Был ли выполнен повтор.
    */
-  redo(path: SafePaths<T, D> | Accessor<any>): boolean;
+  redo<P extends string>(path: PathOrError<T, P, D> | Accessor<any>): boolean;
 
   /**
-   * Явно триггернуть обновление подписчиков по cacheKey.
+   * Принудительно вызвать обновления по cacheKey.
+   * @param cacheKey - Ключ или набор ключей.
    */
   invalidate(cacheKey: CacheKey<T, D>): void;
 
   /**
-   * Запустить обновления в batch-моде.
+   * Выполнить пакетное обновление состояния.
+   * @param callback - Функция с обновлениями.
    */
   batch(callback: () => void): Promise<void> | void;
 
   /**
    * Получить статистику использования хранилища.
+   * @returns Объект со статистикой.
    */
   getMemoryStats(): MemoryStats;
 
   /**
-   * Очистить подписки, таймеры и контроллеры.
+   * Полностью очистить хранилище: подписки, таймеры и т.д.
    */
   clearStore(): void;
 }

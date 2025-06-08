@@ -8,6 +8,9 @@ import {
   SubscriptionMeta,
   Accessor,
   MaxDepth,
+  ExtractPathType,
+  AssertValueAssignable,
+  PathExtract,
 } from "./types";
 import {
   normalizeCacheKey,
