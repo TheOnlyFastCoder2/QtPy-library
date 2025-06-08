@@ -7,11 +7,6 @@ import {
   ObservableStore,
   SubscriptionMeta,
   Accessor,
-  MaxDepth,
-  ExtractPathType,
-  AssertValueAssignable,
-  PathExtract,
-  DefaultableDepth,
 } from "./types";
 import {
   normalizeCacheKey,
@@ -19,6 +14,7 @@ import {
   splitPath,
   getStringPath,
   validatePath,
+  isArrayMethod,
 } from "./utils";
 
 // --- Helpers & Managers ---
@@ -80,16 +76,19 @@ class HistoryManager {
     }
   }
   getEntries() {
-    return Array.from(this.history.entries()).map(([path, h]) => ({
-      path,
-      length: h.length,
-    }));
+    return Array.from(this.history.entries()).map(
+      ([path, h], index, entries) => ({
+        path,
+        length: h.length,
+        entries: entries[index][1],
+      })
+    );
   }
 }
 
 export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
-  middlewares: Middleware<T>[] = [],
+  middlewares: Middleware<T, D>[] = [],
   options: { maxHistoryLength?: number } = {}
 ): ObservableStore<T, D> {
   const { maxHistoryLength = Infinity } = options;
@@ -132,43 +131,53 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }, rawState as any);
     parentObj[lastKey as keyof typeof parentObj] = val;
   };
+
+  let currentArrayMethod: { name: string } | null = null;
+
   function createReactiveProxy<T extends object>(
     target: T,
     parentFullPath: string = ""
   ): T {
-    // если не объект или null — возвращаем “как есть”
     if (typeof target !== "object" || target === null) return target;
 
-    // попробуем взять уже созданный прокси из кэша
-    let pathMap = proxyCache.get(target);
-    if (!pathMap) {
-      pathMap = new Map();
-      proxyCache.set(target, pathMap);
-    } else if (pathMap.has(parentFullPath)) {
-      return pathMap.get(parentFullPath);
-    }
-
-    // создаём новый прокси, “захватив” parentFullPath в замыкании
     const proxy = new Proxy(target, {
       get(target, prop, receiver) {
-        const key = propToString(prop);
+        const key = typeof prop === "string" ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
-        // трекинг зависимости текущего подписчика
+        // Трекинг зависимостей
         currentSubscriberMeta?.trackedPaths.add(fullPath);
 
-        // если сейчас в режиме batch и есть отложенное значение — возвращаем его
-        if (batching && currentPending()?.has(fullPath)) {
-          return currentPending()!.get(fullPath);
-        }
-
-        // читаем “сырое” значение
         const rawValue = Reflect.get(target, prop, receiver);
 
-        // защита от циклических ссылок
+        // 🎯 Перехват мутирующих методов массива
+        if (
+          Array.isArray(target) &&
+          typeof rawValue === "function" &&
+          isArrayMethod(key)
+        ) {
+          return (...args: any[]) => {
+            currentArrayMethod = { name: key };
+            let result: any;
+
+            store.batch(() => {
+              result = rawValue.apply(receiver, args);
+            });
+
+            // ✅ Инвалидация один раз
+            if (parentFullPath) {
+              store.invalidate(parentFullPath);
+            }
+
+            currentArrayMethod = null;
+            return result;
+          };
+        }
+
+        // Защита от циклических ссылок
         if (rawValue === target) return receiver;
 
-        // если это вложенный объект — рекурсивно проксируем
+        // Рекурсивная проксимация вложенных объектов
         if (rawValue !== null && typeof rawValue === "object") {
           return createReactiveProxy(rawValue, fullPath);
         }
@@ -177,22 +186,28 @@ export function createObservableStore<T extends object, D extends number = 0>(
       },
 
       set(target, prop, value, receiver) {
-        const key = propToString(prop);
+        const key = typeof prop === "string" ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
-        // оптимизация: если значение не изменилось — выходим
         const oldValue = Reflect.get(target, prop, receiver);
         if (Object.is(oldValue, value)) return true;
+
         if (batching) {
           currentPending()!.set(fullPath, value);
         } else {
           store.update(fullPath, value);
+
+          // Только если не в массивном методе — иначе invalidate вызывается в batch
+          if (!currentArrayMethod && parentFullPath) {
+            store.invalidate(parentFullPath);
+          }
         }
+
         return true;
       },
 
       deleteProperty(target, prop) {
-        const key = propToString(prop);
+        const key = typeof prop === "string" ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         const success = Reflect.deleteProperty(target, prop);
@@ -201,21 +216,16 @@ export function createObservableStore<T extends object, D extends number = 0>(
       },
 
       ownKeys(target) {
-        // при итерации по ключам тоже трекингим все вложенные пути
         if (currentSubscriberMeta) {
           const prefix = parentFullPath ? `${parentFullPath}.` : "";
           for (const key of Reflect.ownKeys(target)) {
-            currentSubscriberMeta.trackedPaths.add(
-              `${prefix}${propToString(key)}`
-            );
+            currentSubscriberMeta.trackedPaths.add(`${prefix}${String(key)}`);
           }
         }
         return Reflect.ownKeys(target);
       },
     });
 
-    // сохраняем в кэше и возвращаем
-    pathMap.set(parentFullPath, proxy);
     return proxy;
   }
 
@@ -243,9 +253,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
         }
       }
     });
+    const pathSubs = pathSubscribers.get(normalizedKey);
+    if (pathSubs) {
+      const newVal = getRaw(normalizedKey);
+      pathSubs.forEach((cb) => cb(newVal));
+    }
   }
-  const notifyPath = (path: string, val: any) =>
-    pathSubscribers.get(path)?.forEach((cb) => cb(val));
 
   function performCleanup() {
     const used = new Set<string>(pathSubscribers.keys());
@@ -258,7 +271,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
     if (shallowEqual(oldVal, newVal)) return;
     historyMgr.push(path, oldVal);
     setRaw(path, newVal);
-    notifyPath(path, newVal);
     notifyInvalidate(path);
   };
   // Package Update Wrapper
@@ -270,7 +282,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       if (!shallowEqual(oldVal, value)) {
         historyMgr.push(path, oldVal);
         setRaw(path, value);
-        notifyPath(path, value);
+        notifyInvalidate(path);
         changedPaths.push(path);
       }
     }
@@ -468,7 +480,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     };
   };
 
-  store.invalidate = (keyProxy: any) => {
+  store.invalidate = (keyProxy) => {
     const key = resolve(keyProxy);
     notifyInvalidate(key);
   };

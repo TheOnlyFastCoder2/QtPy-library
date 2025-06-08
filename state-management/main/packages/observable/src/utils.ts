@@ -207,6 +207,7 @@ export function normalizeCacheKey<T, D extends number = MaxDepth>(
 ): string {
   // 1. Массив ключей (групповая инвалидация)
   if (Array.isArray(cacheKey)) {
+    //@ts-ignore
     return cacheKey
       .map((key) => normalizeCacheKey<T, D>(key, store))
       .filter((s) => s !== "")
@@ -270,4 +271,18 @@ export function shallowEqual(a: any, b: any): boolean {
  */
 export function splitPath(path: string): (string | number)[] {
   return path.split(".").map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg));
+}
+// isMethodsOfArray
+export function isArrayMethod(name: string, names: string[] = []) {
+  switch (name) {
+    case "push":
+    case "pop":
+    case "splice":
+    case "shift":
+    case "unshift":
+    case "sort":
+    case "reverse":
+      return !names.length || names.includes(name);
+  }
+  return false;
 }

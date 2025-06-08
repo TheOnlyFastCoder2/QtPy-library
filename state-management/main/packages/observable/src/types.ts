@@ -301,6 +301,7 @@ export type Middleware<T, D extends number = MaxDepth> = (
   store: ObservableStore<T, DefaultableDepth<D>>,
   next: UpdateFunction<T, DefaultableDepth<D>>
 ) => UpdateFunction<T, DefaultableDepth<D>>;
+
 export type DefaultableDepth<D> = [D] extends [never] ? 0 : D;
 /**
  * Статистика использования памяти и подписок в хранилище.
@@ -392,7 +393,9 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    */
   update<P extends string, V>(
     path: PathOrError<T, P, D>,
-    valueOrFn: PathExtract<T, D, P, V>
+    valueOrFn:
+      | PathExtract<T, D, P, V>
+      | ((prev: PathExtract<T, D, P>) => PathExtract<T, D, P>)
   ): void;
 
   /**
@@ -410,8 +413,10 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    */
   resolveValue<P extends string, V>(
     path: PathOrError<T, P, D>,
-    valueOrFn: PathExtract<T, D, P, V>
-  ): PathExtract<T, D, P, V>;
+    valueOrFn:
+      | PathExtract<T, D, P, V>
+      | ((prev: PathExtract<T, D, P>) => PathExtract<T, D, P>)
+  ): PathExtract<T, D, P> | PathExtract<T, D, P, V>;
 
   /**
    * Вычислить новое значение без его установки по Accessor.
@@ -440,12 +445,9 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param asyncUpdater - Функция, возвращающая промис нового значения.
    * @param options - Опции (например, отмена предыдущих).
    */
-  asyncUpdate<P extends string, V>(
+  asyncUpdate<P extends string, V, E = PathExtract<T, D, P, V>>(
     path: PathOrError<T, P, D>,
-    asyncUpdater: (
-      current: PathExtract<T, D, P, V>,
-      signal: AbortSignal
-    ) => Promise<PathExtract<T, D, P, V>>,
+    asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
     options?: { abortPrevious?: boolean }
   ): Promise<void>;
 
