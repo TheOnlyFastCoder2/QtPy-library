@@ -7,6 +7,10 @@ import {
   ObservableStore,
   SubscriptionMeta,
   Accessor,
+  MetaData,
+  PathLimitEntry,
+  TupleUpTo,
+  PathsEntry,
 } from "./types";
 import {
   normalizeCacheKey,
@@ -15,101 +19,145 @@ import {
   getStringPath,
   validatePath,
   isArrayMethod,
+  getMetaData,
+  setMetaData,
+  withMetaSupport,
+  calculateSnapshotHash,
+  isArrayPath,
+  parseArrayPath,
 } from "./utils";
 
 // --- Helpers & Managers ---
-class HistoryManager {
-  private history = new Map<string, any[]>();
-  private index = new Map<string, number>();
-  constructor(private maxLength: number) {}
+class HistoryManager<T extends object, D extends number = 0> {
+  private undoStack = new Map<string, any[]>();
+  private redoStack = new Map<string, any[]>();
+  private perPathMaxLength: Map<string, number>;
 
-  push(path: string, prevValue: any) {
-    const hist = this.history.get(path) || [];
-    let idx = this.index.get(path) ?? -1;
-
-    // при откате обрезаем «будущую» ветку
-    if (idx + 1 < hist.length) {
-      hist.splice(idx + 1);
+  constructor(
+    pathLimits: PathLimitEntry<T, D>[] = [],
+    resolvePath: (path: string | Accessor<any>) => string
+  ) {
+    this.perPathMaxLength = new Map();
+    for (const [key, max] of pathLimits) {
+      const path = resolvePath(key);
+      this.perPathMaxLength.set(path, max as any);
     }
-
-    hist.push(prevValue);
-
-    // ленивое обрезание самого старого, если вышли за maxLength
-    if (hist.length > this.maxLength) {
-      hist.shift();
-      idx = hist.length - 1;
-    } else {
-      idx = hist.length - 1;
-    }
-
-    this.history.set(path, hist);
-    this.index.set(path, idx);
   }
+
+  private getMaxLength(path: string): number {
+    return this.perPathMaxLength.get(path) ?? 0;
+  }
+
+  push(path: string, value: any) {
+    if (!this.perPathMaxLength.get(path)) return;
+    const undo = this.undoStack.get(path) ?? [];
+    undo.push(value);
+
+    const maxLength = this.getMaxLength(path);
+    if (undo.length > maxLength) {
+      undo.shift();
+    }
+
+    this.undoStack.set(path, undo);
+    this.redoStack.set(path, []);
+  }
+
+  undo(path: string): any | undefined {
+    const undo = this.undoStack.get(path) ?? [];
+    const redo = this.redoStack.get(path) ?? [];
+
+    if (undo.length <= 1) return undefined;
+
+    const current = undo.pop()!;
+    redo.push(current);
+
+    this.undoStack.set(path, undo);
+    this.redoStack.set(path, redo);
+
+    return undo[undo.length - 1];
+  }
+
+  redo(path: string): any | undefined {
+    const undo = this.undoStack.get(path) ?? [];
+    const redo = this.redoStack.get(path) ?? [];
+
+    if (redo.length === 0) return undefined;
+
+    const value = redo.pop()!;
+    undo.push(value);
+
+    this.undoStack.set(path, undo);
+    this.redoStack.set(path, redo);
+
+    return value;
+  }
+
+  getCurrent(path: string): any | undefined {
+    const undo = this.undoStack.get(path) ?? [];
+    return undo[undo.length - 1];
+  }
+
   clear(path: string) {
-    this.history.delete(path);
-    this.index.delete(path);
-  }
-  undo(path: string) {
-    const hist = this.history.get(path);
-    let idx = this.index.get(path) ?? -1;
-    if (!hist || idx < 0) return;
-    const value = hist[idx];
-    this.index.set(path, idx - 1);
-    return value;
+    this.undoStack.delete(path);
+    this.redoStack.delete(path);
   }
 
-  redo(path: string) {
-    const hist = this.history.get(path);
-    let idx = this.index.get(path) ?? -1;
-    if (!hist || idx >= hist.length) return;
-    const value = hist[idx];
-    this.index.set(path, idx);
-    return value;
-  }
-  // Remove history entries for paths not in the provided set
   pruneUnused(usedPaths: Set<string>) {
-    for (const path of Array.from(this.history.keys())) {
+    for (const path of [...this.undoStack.keys()]) {
       if (!usedPaths.has(path)) {
-        this.history.delete(path);
-        this.index.delete(path);
+        this.clear(path);
       }
     }
   }
+
   getEntries() {
-    return Array.from(this.history.entries()).map(
-      ([path, h], index, entries) => ({
+    return Array.from(this.undoStack.entries()).map(([path, stack]) => {
+      const redo = this.redoStack.get(path) ?? [];
+      return {
         path,
-        length: h.length,
-        entries: entries[index][1],
-      })
-    );
+        current: stack[stack.length - 1],
+        undoLength: stack.length,
+        redoLength: redo.length,
+        undo: stack,
+        redo: redo,
+        maxLength: this.getMaxLength(path),
+      };
+    });
   }
 }
 
 export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[] = [],
-  options: { maxHistoryLength?: number } = {}
+  options: {
+    customLimitsHistory?: PathLimitEntry<T, D>[];
+  } = {}
 ): ObservableStore<T, D> {
-  const { maxHistoryLength = Infinity } = options;
   let rawState = { ...initialState };
 
   // === Batching infrastructure ===
   let batching = false;
+  let modeBatching: "proxy" | "user" = "user";
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let currentSubscriberMeta: SubscriptionMeta | null = null;
 
+  const metaMap = new WeakMap<object, MetaData>();
   const pendingStack: Map<string, any>[] = [];
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
   const aborters = new Map<string, AbortController>();
-  const proxyCache = new WeakMap<object, Map<string, any>>();
+  const batchedInvalidations = new Set<string>();
 
-  const historyMgr = new HistoryManager(maxHistoryLength);
-
-  const currentPending = () => pendingStack[pendingStack.length - 1];
   // resolve paths from proxies or strings
   const resolve = (p: string | Accessor<any>) => getStringPath(p);
+
+  const historyMgr = new HistoryManager<T, D>(
+    options.customLimitsHistory ?? [],
+    resolve
+  );
+
+  const currentPending = () => pendingStack[pendingStack.length - 1];
+
   // read raw value
   const getRaw = (path: string) => {
     const segments = splitPath(path);
@@ -159,13 +207,14 @@ export function createObservableStore<T extends object, D extends number = 0>(
           return (...args: any[]) => {
             currentArrayMethod = { name: key };
             let result: any;
-
+            modeBatching = "proxy";
             store.batch(() => {
               result = rawValue.apply(receiver, args);
             });
 
-            // ✅ Инвалидация один раз
-            if (parentFullPath) {
+            if (batching && parentFullPath) {
+              batchedInvalidations.add(parentFullPath);
+            } else if (parentFullPath) {
               store.invalidate(parentFullPath);
             }
 
@@ -190,8 +239,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         const oldValue = Reflect.get(target, prop, receiver);
-        if (Object.is(oldValue, value)) return true;
 
+        if (Object.is(oldValue, value)) return true;
         if (batching) {
           currentPending()!.set(fullPath, value);
         } else {
@@ -228,13 +277,35 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     return proxy;
   }
+  function shouldSkipValueUpdate(
+    oldVal: any,
+    newVal: any,
+    metaMap: WeakMap<object, MetaData>
+  ) {
+    let skipUpdate = false;
 
-  // Оптимизированное преобразование свойств
-  const propToString = (prop: string | symbol): string =>
-    typeof prop === "symbol"
-      ? Symbol.keyFor(prop) || prop.toString()
-      : String(prop);
+    const isSupported = withMetaSupport(newVal, () => {
+      const meta = getMetaData(metaMap, newVal);
+      const prevSig = meta?._prevSignature;
+      const currentSig = calculateSnapshotHash(newVal);
 
+      if (prevSig && currentSig && prevSig === currentSig) {
+        skipUpdate = true;
+        return true;
+      }
+
+      if (currentSig) {
+        setMetaData(metaMap, newVal, { _prevSignature: currentSig });
+      }
+
+      return true;
+    });
+
+    return {
+      bool: skipUpdate || (!isSupported && shallowEqual(oldVal, newVal)),
+      isSupportedMetaData: isSupported,
+    };
+  }
   // placeholder for store
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
@@ -266,10 +337,20 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   // core update logic
-  const doUpdate = (path: string, newVal: any) => {
+  const doUpdate = (path: string, newVal: any, skipHistory = false) => {
     const oldVal = getRaw(path);
-    if (shallowEqual(oldVal, newVal)) return;
-    historyMgr.push(path, oldVal);
+    const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
+    if (isSkipUpdate.bool) return;
+
+    if (!skipHistory) {
+      if (isSkipUpdate.isSupportedMetaData && newVal !== oldVal) {
+        historyMgr.push(path, newVal);
+      }
+      if (!isSkipUpdate.isSupportedMetaData) {
+        historyMgr.push(path, newVal);
+      }
+    }
+
     setRaw(path, newVal);
     notifyInvalidate(path);
   };
@@ -279,12 +360,16 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     for (const [path, value] of pending) {
       const oldVal = getRaw(path);
-      if (!shallowEqual(oldVal, value)) {
+      const isSkipUpdate = shouldSkipValueUpdate(oldVal, value, metaMap);
+      if (isSkipUpdate.bool) continue;
+
+      if (modeBatching === "user") {
         historyMgr.push(path, oldVal);
-        setRaw(path, value);
-        notifyInvalidate(path);
-        changedPaths.push(path);
       }
+
+      setRaw(path, value);
+      notifyInvalidate(path);
+      changedPaths.push(path);
     }
 
     if (changedPaths.length) {
@@ -293,18 +378,27 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   store.resolveValue = (pathOrAccessor, valueOrFn) => {
-    validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
     const old = getRaw(path);
-    return typeof valueOrFn === "function"
-      ? (valueOrFn as (cur: any) => any)(old)
-      : valueOrFn;
+
+    const newVal = typeof valueOrFn === "function" ? valueOrFn(old) : valueOrFn;
+
+    withMetaSupport(newVal, () => {
+      const snapshot = calculateSnapshotHash(old);
+      if (snapshot) return;
+      setMetaData(metaMap, newVal, {
+        _prevSignature: snapshot,
+      });
+    });
+
+    return newVal;
   };
+
   // API methods
   store.update = (pathOrAccessor, valueOrFn) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
-    const newVal = store.resolveValue(pathOrAccessor, valueOrFn);
+    let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
 
     if (batching) {
       currentPending()!.set(path, newVal);
@@ -318,13 +412,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
     options: { abortPrevious?: boolean } = { abortPrevious: false }
   ) => {
-    // Проверяем, что путь задан корректно (строка или функция-доступ)
     validatePath(pathOrAccessor);
-
-    // Получаем непосредственно строку вида "a.b.c" или "arr.0.name"
     const pathStr = resolve(pathOrAccessor);
-
-    // Если нужно отменить предыдущий запрос по этому же пути — делаем abort
     if (options.abortPrevious) {
       const prevCtrl = aborters.get(pathStr);
       if (prevCtrl) {
@@ -332,10 +421,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         aborters.delete(pathStr);
       }
     }
-
-    // Создаём новый AbortController и привязываем его к этому пути
     const ctrl = new AbortController();
-    // При отмене автоматически удаляем контроллер из мапы
     ctrl.signal.addEventListener(
       "abort",
       () => {
@@ -346,24 +432,17 @@ export function createObservableStore<T extends object, D extends number = 0>(
     aborters.set(pathStr, ctrl);
 
     try {
-      // Берём текущее «сырое» значение по строковому пути
       const oldValue = getRaw(pathStr);
-
-      // Вызываем переданную асинхронную функцию (updator), передаём текущий value и signal
       const newValue = await updater(oldValue, ctrl.signal);
 
-      // Если во время ожидания не произошло abort, применяем обновление
       if (!ctrl.signal.aborted) {
-        // Передаём результат прямо в store.update, используя строковый путь
         store.update(pathStr, newValue);
       }
     } catch (e) {
-      // Если ошибка не связана с AbortError, логируем её
       if ((e as any).name !== "AbortError") {
         console.error(e);
       }
     } finally {
-      // В любом случае удаляем этот контроллер
       aborters.delete(pathStr);
     }
   };
@@ -387,6 +466,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
         // top-level batch: commit all changes
         commit(myPending);
         batching = false;
+        modeBatching = "user";
+        for (const path of batchedInvalidations) {
+          store.invalidate(path);
+        }
+        batchedInvalidations.clear();
       }
     }
     return Promise.resolve();
@@ -396,7 +480,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const prevValue = historyMgr.undo(path);
     if (prevValue !== undefined) {
-      doUpdate(path, prevValue);
+      doUpdate(path, prevValue, true);
       return true;
     }
     console.warn(`No undo history for path: ${path}`);
@@ -407,7 +491,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const nextValue = historyMgr.redo(path);
     if (nextValue !== undefined) {
-      doUpdate(path, nextValue);
+      doUpdate(path, nextValue, true);
       return true;
     }
     // No history to redo
@@ -534,3 +618,50 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   return store as ObservableStore<T, D>;
 }
+
+export interface StoreState {
+  user: {
+    name: string;
+    age: number;
+    settings: {
+      theme: string;
+      locale: string;
+    };
+  };
+  items: number[];
+  counter: number;
+  // _itemHistory: undefined | number;
+}
+
+// 2) Определяем начальный стейт:
+const initialState: StoreState = {
+  user: {
+    name: "Alice",
+    age: 30,
+    settings: {
+      theme: "light",
+      locale: "ru",
+    },
+  },
+  items: [1, 2, 3] as TupleUpTo<number, 16>,
+  counter: 0,
+  // _itemHistory: undefined,
+};
+// 3) Глубина тип поиска строковых путей
+type DepthPath = 3;
+
+// 3) Создаём стор с middleware и ограничением истории:
+export const store = createObservableStore<StoreState, DepthPath>(
+  initialState,
+  [], // цепочка middleware
+  {
+    customLimitsHistory: [
+      ["counter", 3],
+      ["user.settings.locale", 2],
+      [() => store.$.items[3], 3],
+      [() => store.$.items, 3],
+    ],
+  }
+);
+
+store.upda;

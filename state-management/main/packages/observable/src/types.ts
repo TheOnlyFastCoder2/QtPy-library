@@ -14,11 +14,28 @@ type Range<
   Acc extends number[] = []
 > = Acc["length"] extends N ? Acc[number] : Range<N, [...Acc, Acc["length"]]>;
 type NumberToString<N extends number> = `${N}`;
-export type LiteralIndices<N extends number = 10> = NumberToString<Range<N>>;
+export type LiteralIndices<N extends number = 1> = NumberToString<Range<N>>;
+
+export type BuildTuple<
+  T,
+  L extends number,
+  R extends unknown[] = []
+> = R["length"] extends L ? R : BuildTuple<T, L, [T, ...R]>;
+
+/**
+ * Генерирует объединение всех кортежей длиной от 0 до N включительно.
+ * Например: TupleUpTo<2, number> → [] | [number] | [number, number]
+ */
+export type TupleUpTo<
+  T,
+  N extends number,
+  R extends unknown[] = [],
+  U = never
+> = R["length"] extends N ? U | R : TupleUpTo<T, N, [T, ...R], U | R>;
+
 /**
  * Утилита для извлечения типа элемента массива/кортежа
  */
-
 export type IsTuple<T> = T extends readonly any[]
   ? number extends T["length"]
     ? false
@@ -42,10 +59,10 @@ type TupleArrayPaths<T extends readonly any[], U, Depth extends number> =
       : TypeError<"Failed to infer subpaths from tuple array">);
 
 type RegularArrayPaths<U, Depth extends number> =
-  | "0"
+  | LiteralIndices
   | (Paths<U, Decrement<Depth>> extends infer Sub
       ? Sub extends string
-        ? `0.${Sub}`
+        ? `${LiteralIndices}.${Sub}`
         : TypeError<"Invalid subpath inside regular array">
       : TypeError<"Failed to infer subpaths from regular array">);
 /**
@@ -102,12 +119,40 @@ export type ValidUpdateValue<
   ? TypeError<"Invalid value type for this path">
   : SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>;
 
+export type PathDepth<
+  P extends string,
+  Acc extends any[] = []
+> = P extends `${string}.${infer Rest}`
+  ? PathDepth<Rest, [1, ...Acc]>
+  : Acc["length"] extends 0
+  ? 1
+  : Acc["length"];
+
+export type PathTooDeep<
+  P extends string,
+  D extends number
+> = PathDepth<P> extends infer PD extends number
+  ? PD extends Decrement<D> | D
+    ? false
+    : true
+  : true;
+
+export type FilteredPaths<T, D extends number> = SafePaths<T, D> extends infer P
+  ? P extends string
+    ? PathOrError<T, P, D> extends string
+      ? P
+      : never
+    : never
+  : never;
+
 export type PathOrError<T, P, D extends number> = D extends 0
   ? string // Заглушка: принимаем любые строки без валидации
   : P extends SafePaths<T, D>
   ? P
   : P extends `${string}.${infer Rest}`
-  ? TypeError<`Invalid path "${P}": unknown key or index "${Rest}"`>
+  ? PathTooDeep<P, D> extends true
+    ? TypeError<`Invalid path "${P}": unknown key or index "${Rest}"`>
+    : string
   : SafePaths<T, D>;
 
 type IsPrimitive<T> = T extends Primitive ? true : false;
@@ -329,6 +374,16 @@ export type SubscriptionMeta = {
   cacheKeys?: Set<string>;
 };
 
+export type MetaWeakMap = WeakMap<object, MetaData>;
+export type MetaData = {
+  _prevSignature?: any;
+  [key: string]: any;
+};
+
+export type PathLimitEntry<T, D extends number> = [PathsEntry<T, D>, number];
+export type PathsEntry<T, D extends number> =
+  | FilteredPaths<T, D>
+  | Accessor<any>;
 /**
  * Интерфейс реактивного хранилища состояния.
  *
@@ -403,7 +458,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param path - Accessor-функция, указывающая на значение.
    * @param valueOrFn - Новое значение или функция обновления.
    */
-  update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
+  // update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
 
   /**
    * Вычислить новое значение без его установки по строковому пути.

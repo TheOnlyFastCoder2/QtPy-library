@@ -1,11 +1,14 @@
 // utils.tsx
 
+// import { fastDeepHash } from "./test";
 import {
   Accessor,
   CacheKey,
   ObservableStore,
   MaxDepth,
   SafePaths,
+  MetaData,
+  MetaWeakMap,
 } from "./types";
 
 /**
@@ -285,4 +288,71 @@ export function isArrayMethod(name: string, names: string[] = []) {
       return !names.length || names.includes(name);
   }
   return false;
+}
+
+export function withMetaSupport<T>(target: T, cb: () => void | any): any {
+  //prettier-ignore
+  if (target === null || !(Array.isArray(target) || typeof target === "object" || typeof target === "function")) {
+    return false;
+  }
+  return cb?.();
+}
+//prettier-ignore
+export function setMetaData<T extends object>(metaMap: MetaWeakMap,target: T,meta: MetaData
+): void {
+  withMetaSupport(target, () => metaMap.set(target, meta));
+}
+//prettier-ignore
+export function getMetaData<T extends object>(metaMap: MetaWeakMap,target: T): MetaData | undefined {
+  return withMetaSupport(target, () => metaMap.get(target));
+}
+//prettier-ignore
+export function deleteMetaData<T extends object>(metaMap: MetaWeakMap, target: T): void {
+  withMetaSupport(target, () => metaMap.delete(target));
+}
+//prettier-ignore
+export function wrapWithMetaUsingUUID(metaMap: MetaWeakMap, target: any): any {
+  withMetaSupport(target, () => {
+    const currentMeta = getMetaData(metaMap, target) ?? {};
+    setMetaData(metaMap, target, {
+      revision: crypto.randomUUID(),
+      _prevRevision: currentMeta.revision ?? null,
+    });
+  });
+  return target;
+}
+
+export function calculateSnapshotHash(obj: any): string | false {
+  try {
+    const input = JSON.stringify(obj);
+    let hash = 5381;
+    for (let i = 0; i < input.length; i++) {
+      hash = (hash * 33) ^ input.charCodeAt(i);
+    }
+    return (hash >>> 0).toString(16);
+  } catch {
+    return false;
+  }
+}
+
+export function parseArrayPath(path: string): {
+  isArrayPath: boolean;
+  parentPath?: string;
+  index?: number;
+} {
+  // Ищем в конце цифры после точки
+  const match = path.match(/^(.*)\.(\d+)$/);
+  if (!match) {
+    return { isArrayPath: false };
+  }
+  const [, parent, idx] = match;
+  return {
+    isArrayPath: true,
+    parentPath: parent,
+    index: Number(idx),
+  };
+}
+
+export function isArrayPath(path: string): boolean {
+  return parseArrayPath(path).isArrayPath;
 }
