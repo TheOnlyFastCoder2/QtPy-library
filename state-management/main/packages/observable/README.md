@@ -175,15 +175,15 @@ export const store = createObservableStore<StoreState, DepthPath>(
   initialState,
   [loggerMiddleware], // цепочка middleware
   {
-    customLimitsHistory: [
+    customLimitsHistory: (state) => [
       // Для свойства counter сохраняем до 3 предыдущих состояний
       ["counter", 3],
       // Для locale — до 2 состояний
       ["user.settings.locale", 2],
       // Для 4-го элемента массива items через аксцессор — до 3 состояний
-      [() => store.$.items[3], 3],
+      [() => state.items[3], 3],
       // Для всего массива items — до 3 состояний
-      [() => store.$.items, 3],
+      [() => state.items, 3],
     ],
   }
 );

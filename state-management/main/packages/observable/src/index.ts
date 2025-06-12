@@ -9,8 +9,6 @@ import {
   Accessor,
   MetaData,
   PathLimitEntry,
-  TupleUpTo,
-  PathsEntry,
 } from "./types";
 import {
   normalizeCacheKey,
@@ -23,8 +21,6 @@ import {
   setMetaData,
   withMetaSupport,
   calculateSnapshotHash,
-  isArrayPath,
-  parseArrayPath,
 } from "./utils";
 
 // --- Helpers & Managers ---
@@ -130,10 +126,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[] = [],
   options: {
-    customLimitsHistory?: PathLimitEntry<T, D>[];
+    customLimitsHistory?: (state: T) => PathLimitEntry<T, D>[];
   } = {}
 ): ObservableStore<T, D> {
-  let rawState = { ...initialState };
+  let rawState: T = { ...initialState };
 
   // === Batching infrastructure ===
   let batching = false;
@@ -150,9 +146,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   // resolve paths from proxies or strings
   const resolve = (p: string | Accessor<any>) => getStringPath(p);
-
   const historyMgr = new HistoryManager<T, D>(
-    options.customLimitsHistory ?? [],
+    options.customLimitsHistory(rawState) ?? [],
     resolve
   );
 
@@ -309,8 +304,18 @@ export function createObservableStore<T extends object, D extends number = 0>(
   // placeholder for store
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
-  Object.defineProperty(store, "state", { get: () => stateProxy });
-  store.$ = store.state;
+  store.state = stateProxy as T;
+  store.$ = stateProxy as T;
+  // Object.defineProperty(store, "state", {
+  //   get: () => stateProxy as T,
+  //   enumerable: true,
+  //   configurable: true,
+  // });
+  // Object.defineProperty(store, "$", {
+  //   get: () => stateProxy as T,
+  //   enumerable: true,
+  //   configurable: true,
+  // });
   // notification: global subscribers filtered by cacheKeys
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
@@ -618,50 +623,3 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   return store as ObservableStore<T, D>;
 }
-
-export interface StoreState {
-  user: {
-    name: string;
-    age: number;
-    settings: {
-      theme: string;
-      locale: string;
-    };
-  };
-  items: number[];
-  counter: number;
-  // _itemHistory: undefined | number;
-}
-
-// 2) Определяем начальный стейт:
-const initialState: StoreState = {
-  user: {
-    name: "Alice",
-    age: 30,
-    settings: {
-      theme: "light",
-      locale: "ru",
-    },
-  },
-  items: [1, 2, 3] as TupleUpTo<number, 16>,
-  counter: 0,
-  // _itemHistory: undefined,
-};
-// 3) Глубина тип поиска строковых путей
-type DepthPath = 3;
-
-// 3) Создаём стор с middleware и ограничением истории:
-export const store = createObservableStore<StoreState, DepthPath>(
-  initialState,
-  [], // цепочка middleware
-  {
-    customLimitsHistory: [
-      ["counter", 3],
-      ["user.settings.locale", 2],
-      [() => store.$.items[3], 3],
-      [() => store.$.items, 3],
-    ],
-  }
-);
-
-store.upda;

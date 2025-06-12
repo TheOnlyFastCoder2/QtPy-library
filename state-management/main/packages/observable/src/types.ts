@@ -343,11 +343,10 @@ export interface UpdateFunction<T, D extends number = MaxDepth> {
  * @template T - Тип корневого состояния.
  */
 export type Middleware<T, D extends number = MaxDepth> = (
-  store: ObservableStore<T, DefaultableDepth<D>>,
-  next: UpdateFunction<T, DefaultableDepth<D>>
-) => UpdateFunction<T, DefaultableDepth<D>>;
+  store: ObservableStore<T, D>,
+  next: UpdateFunction<T, D>
+) => UpdateFunction<T, D>;
 
-export type DefaultableDepth<D> = [D] extends [never] ? 0 : D;
 /**
  * Статистика использования памяти и подписок в хранилище.
  */
@@ -458,7 +457,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param path - Accessor-функция, указывающая на значение.
    * @param valueOrFn - Новое значение или функция обновления.
    */
-  // update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
+  update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
 
   /**
    * Вычислить новое значение без его установки по строковому пути.

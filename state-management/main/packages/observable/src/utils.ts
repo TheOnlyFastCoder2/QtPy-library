@@ -334,25 +334,3 @@ export function calculateSnapshotHash(obj: any): string | false {
     return false;
   }
 }
-
-export function parseArrayPath(path: string): {
-  isArrayPath: boolean;
-  parentPath?: string;
-  index?: number;
-} {
-  // Ищем в конце цифры после точки
-  const match = path.match(/^(.*)\.(\d+)$/);
-  if (!match) {
-    return { isArrayPath: false };
-  }
-  const [, parent, idx] = match;
-  return {
-    isArrayPath: true,
-    parentPath: parent,
-    index: Number(idx),
-  };
-}
-
-export function isArrayPath(path: string): boolean {
-  return parseArrayPath(path).isArrayPath;
-}

@@ -2,54 +2,70 @@ import {
   Accessor,
   ObservableStore,
   CacheKey,
+  PathOrError,
+  PathExtract,
+  MaxDepth,
 } from "@qtpy/state-management-observable/types";
 
 /**
  * Тип возвращаемого массива значений по path-прокси
  */
-export type UseStoreReturnType<P extends Array<string | Accessor<any>>> = {
+export type UseStoreReturnType<
+  T,
+  P extends readonly (PathOrError<T, any, D> | Accessor<any>)[],
+  D extends number = MaxDepth
+> = {
   [K in keyof P]: P[K] extends Accessor<infer V>
     ? V
-    : P[K] extends string
-    ? // если просто строка, непонятно заранее тип, ставим any
-      any
+    : P[K] extends PathOrError<T, infer S, D>
+    ? S extends string
+      ? PathExtract<T, D, S>
+      : never
     : never;
 };
 
 /**
  * Расширенный интерфейс store с React-хуками
  */
-export interface ReactStore<T extends object> extends ObservableStore<T> {
-  /** Подписка на массив путей, возвращает массив текущих значений */
-  useStore<P extends Array<string | Accessor<any>>>(
-    paths: [...P],
-    options?: { cacheKeys?: CacheKey<T>[] }
-  ): UseStoreReturnType<P>;
+export interface ReactStore<T extends object, D extends number = MaxDepth>
+  extends ObservableStore<T, D> {
+  /**
+   * Подписка на массив путей, возвращает массив текущих значений
+   */
+  useStore<P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]>(
+    paths: P,
+    options?: { cacheKeys?: CacheKey<T, D>[] }
+  ): UseStoreReturnType<T, P, D>;
 
-  /** Хук для одного поля: [значение, setValue] */
-  useField<P extends string | Accessor<any>>(
-    path: P,
-    options?: { cacheKeys?: CacheKey<T>[] }
-  ): readonly [
-    P extends Accessor<infer V> ? V : any,
-    (v: P extends Accessor<infer V> ? V : any) => void
-  ];
+  /**
+   * Хук для Accessor-функции: возвращает [значение, setter]
+   */
+  useField<R>(
+    path: Accessor<R>,
+    options?: { cacheKeys?: CacheKey<T, D>[] }
+  ): readonly [R, (v: R) => void];
+
+  /**
+   * Хук для строкового пути: возвращает [значение по пути P, setter]
+   */
+  useField<P extends string>(
+    path: PathOrError<T, P, D>,
+    options?: { cacheKeys?: CacheKey<T, D>[] }
+  ): readonly [PathExtract<T, D, P>, (v: PathExtract<T, D, P>) => void];
 
   /**
    * Хук-эффект, вызываемый при изменении значений по указанным путям.
-   * @param paths — массив путей (строка или Accessor)
-   * @param effect — функция, вызываемая с текущим массивом значений
-   * @param options.cacheKeys — опциональные cacheKeys для дополнительной фильтрации подписки
    */
-  useEffect<P extends Array<string | Accessor<any>>>(
-    paths: [...P],
-    effect: (values: UseStoreReturnType<P>) => void,
-    options?: { cacheKeys?: CacheKey<T>[] }
+  useEffect<P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]>(
+    paths: P,
+    effect: (values: UseStoreReturnType<T, P, D>) => void,
+    options?: { cacheKeys?: CacheKey<T, D>[] }
   ): void;
 
   /** Инвалидация компонентов по ключам кеша */
-  reloadComponents(cacheKeys: CacheKey<T>[]): void;
+  reloadComponents(cacheKeys: CacheKey<T, D>[]): void;
 }
+
 /**
  * Опции для ReactStore, передаются во внутренний createObservableStore
  */
