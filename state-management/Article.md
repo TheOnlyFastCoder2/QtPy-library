@@ -30,13 +30,23 @@
 ```ts
 import { createObservableStore } from "@qtpy/state-management-observable";
 
-const initialState = {
+interface User {
+  name: string;
+  age: number;
+}
+
+interface AppState {
+  user: User;
+  items: number[];
+  theme: string;
+}
+const initialState: AppState = {
   user: { name: "Alice", age: 30 },
   items: [1, 2, 3],
   theme: "light",
 };
-
-const store = createObservableStore(initialState, [], {
+type DeepMax = 2;
+const store = createObservableStore<initialState, DeepMax>(initialState, [], {
   customLimitsHistory: ($) => [
     ["user.age", 5],
     [(t) => $.items[t(1)], 3],
