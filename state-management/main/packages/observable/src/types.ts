@@ -16,12 +16,6 @@ type Range<
 type NumberToString<N extends number> = `${N}`;
 export type LiteralIndices<N extends number = 1> = NumberToString<Range<N>>;
 
-export type BuildTuple<
-  T,
-  L extends number,
-  R extends unknown[] = []
-> = R["length"] extends L ? R : BuildTuple<T, L, [T, ...R]>;
-
 /**
  * Генерирует объединение всех кортежей длиной от 0 до N включительно.
  * Например: TupleUpTo<2, number> → [] | [number] | [number, number]
@@ -289,26 +283,36 @@ export type Accessor<R> = (t: <K>(arg: K) => K) => R;
  */
 export type Primitive = string | number | boolean | symbol | null | undefined;
 
-/**
- * Cache key для фильтрации уведомлений или инвалидации.
- * Может быть:
- * - строкой (dot-notation или любая другая),
- * - числом / булевым / null / undefined,
- * - стрелочной функцией, принимающей state и возвращающей строку,
- * - или массивом из предыдущих вариантов (будет склеен через точку).
- *
- * Пример: ["user", () => state.settings.locale, "profile"]
- */
-export type CacheKey<T, D extends number = 0> =
-  | string
-  | number
-  | boolean
-  | null
-  | Paths<T, D>
-  | undefined
-  | Accessor<T>
-  | ((store: T) => string)
-  | Array<CacheKey<T>>;
+export type ValueOrFn<V> = ((value: V) => V) | V;
+export type ExtractPathReturn<
+  T,
+  P extends PathOrAccessor<T, D>,
+  D extends number = MaxDepth
+> = P extends Accessor<infer V>
+  ? V
+  : P extends PathOrError<T, infer S, D>
+  ? S extends string
+    ? PathExtract<T, D, S>
+    : never
+  : never;
+
+export type CacheKeys<
+  T,
+  P extends readonly PathOrAccessor<T, D>[],
+  D extends number = MaxDepth
+> = {
+  [K in keyof P]: P[K] extends Accessor<infer V>
+    ? V
+    : P[K] extends PathOrError<T, infer S, D>
+    ? S extends string
+      ? PathExtract<T, D, S>
+      : never
+    : never;
+};
+
+export type PathOrAccessor<T, D extends number> =
+  | PathOrError<T, string, D>
+  | Accessor<any>;
 
 /**
  * Колбэк для подписки на изменения.
@@ -390,9 +394,6 @@ export type PathsEntry<T, D extends number> =
  */
 export interface ObservableStore<T, D extends number = MaxDepth> {
   /** Прокси-объект состояния. */
-  readonly state: T;
-
-  /** Альтернативное имя для `state`, сокращённая запись. */
   readonly $: T;
 
   /**
@@ -400,7 +401,10 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param callback - Колбэк, вызываемый при любом изменении состояния.
    * @param cacheKeys - Ключи кэша для фильтрации уведомлений (необязательно).
    */
-  subscribe(callback: Subscriber<T>, cacheKeys?: CacheKey<T, D>[]): Unsubscribe;
+  subscribe(
+    callback: Subscriber<T>,
+    cacheKeys?: readonly PathOrAccessor<T, D>[]
+  ): Unsubscribe;
 
   /**
    * Подписка на изменения по строковому пути.
@@ -408,77 +412,58 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param callback - Колбэк, вызываемый при изменении значения по этому пути.
    * @param options - Опции подписки (immediate вызов, cacheKeys).
    */
-  subscribeToPath<P extends string, V = undefined>(
-    path: PathOrError<T, P, D>,
-    callback: (value: PathExtract<T, D, P, V>) => void,
-    options?: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] }
-  ): Unsubscribe;
-
-  /**
-   * Подписка на изменения по Accessor-функции.
-   * @param path - Функция доступа, указывающая на значение.
-   * @param callback - Колбэк, вызываемый при изменении.
-   * @param options - Опции подписки.
-   */
-  subscribeToPath<R>(
-    path: Accessor<R>,
-    callback: (value: R) => void,
-    options?: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] }
+  subscribeToPath<const P extends PathOrAccessor<T, D>>(
+    path: P,
+    callback: (value: ExtractPathReturn<T, P, D>) => void,
+    options?: {
+      immediate?: boolean;
+      cacheKeys?: readonly PathOrAccessor<T, D>[];
+    }
   ): Unsubscribe;
 
   /**
    * Получить значение по строковому пути.
-   * @param path - Строка, представляющая путь в объекте состояния.
+   * @param path - Accessor-функция или строка, представляющая путь в объекте состояния.
    * @returns Значение по указанному пути.
    */
-  get<P extends string>(path: PathOrError<T, P, D>): PathExtract<T, D, P>;
+  get<const P extends PathOrAccessor<T, D>>(
+    path: P
+  ): ExtractPathReturn<T, P, D>;
 
-  /**
-   * Получить значение по Accessor-функции.
-   * @param path - Accessor-функция, возвращающая значение из состояния.
-   * @returns Результат Accessor-функции.
-   */
-  get<R>(path: Accessor<R>): R;
-
-  /**
-   * Обновить значение по строковому пути.
-   * @param path - Путь к значению.
-   * @param valueOrFn - Новое значение или функция обновления.
-   */
-  update<P extends string, V>(
-    path: PathOrError<T, P, D>,
-    valueOrFn:
-      | PathExtract<T, D, P, V>
-      | ((prev: PathExtract<T, D, P>) => PathExtract<T, D, P>)
-  ): void;
-
-  /**
-   * Обновить значение по Accessor-функции.
-   * @param path - Accessor-функция, указывающая на значение.
-   * @param valueOrFn - Новое значение или функция обновления.
-   */
-  update<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): void;
+  update: {
+    /**
+     * Обновить значение.
+     * @param path - Accessor-функция или путь к значению.
+     * @param valueOrFn - Новое значение или функция обновления.
+     * @param options - Дополнительные параметры.
+     * @param option.keepQuiet - Если true, обновление не будет уведомлять подписчиков.
+     */
+    <const P extends PathOrAccessor<T, D>>(
+      path: P,
+      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>,
+      option?: { keepQuiet?: boolean }
+    ): void;
+    /**
+     * Обновить значение без уведомлений подписок.
+     * @param path - Accessor-функция или путь к значению.
+     * @param valueOrFn - Новое значение или функция обновления.
+     */
+    quiet: <const P extends PathOrAccessor<T, D>>(
+      path: P,
+      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>
+    ) => void;
+  };
 
   /**
    * Вычислить новое значение без его установки по строковому пути.
-   * @param path - Путь к значению.
+   * @param path - Accessor-функция или путь к значению.
    * @param valueOrFn - Новое значение или функция вычисления.
    * @returns Предполагаемое значение.
    */
-  resolveValue<P extends string, V>(
-    path: PathOrError<T, P, D>,
-    valueOrFn:
-      | PathExtract<T, D, P, V>
-      | ((prev: PathExtract<T, D, P>) => PathExtract<T, D, P>)
-  ): PathExtract<T, D, P> | PathExtract<T, D, P, V>;
-
-  /**
-   * Вычислить новое значение без его установки по Accessor.
-   * @param path - Accessor-функция.
-   * @param valueOrFn - Новое значение или функция вычисления.
-   * @returns Предполагаемое значение.
-   */
-  resolveValue<R>(path: Accessor<R>, valueOrFn: R | ((prev: R) => R)): R;
+  resolveValue<const P extends PathOrAccessor<T, D>>(
+    path: P,
+    valueOrFn: ValueOrFn<P>
+  ): ExtractPathReturn<T, P, D>;
 
   /**
    * Отменить все отложенные (асинхронные) обновления.
@@ -489,31 +474,20 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * Отменить отложенные обновления по указанному пути.
    * @param path - Строковый путь или Accessor.
    */
-  cancelAsyncUpdates<P extends string>(
-    path: PathOrError<T, P, D> | Accessor<any>
-  ): void;
+  cancelAsyncUpdates<const P extends PathOrAccessor<T, D>>(path: P): void;
 
   /**
    * Асинхронно обновить значение по строковому пути.
-   * @param path - Путь к значению.
+   * @param path - Accessor-функция, Путь к значению.
    * @param asyncUpdater - Функция, возвращающая промис нового значения.
    * @param options - Опции (например, отмена предыдущих).
    */
-  asyncUpdate<P extends string, V, E = PathExtract<T, D, P, V>>(
-    path: PathOrError<T, P, D>,
+  asyncUpdate<
+    const P extends PathOrAccessor<T, D>,
+    E = ExtractPathReturn<T, P, D>
+  >(
+    path: P,
     asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
-    options?: { abortPrevious?: boolean }
-  ): Promise<void>;
-
-  /**
-   * Асинхронно обновить значение по Accessor.
-   * @param path - Accessor-функция.
-   * @param asyncUpdater - Асинхронная функция обновления.
-   * @param options - Опции (например, отмена предыдущих).
-   */
-  asyncUpdate<R>(
-    path: Accessor<R>,
-    asyncUpdater: (current: Accessor<R>, signal: AbortSignal) => Promise<R>,
     options?: { abortPrevious?: boolean }
   ): Promise<void>;
 
@@ -522,20 +496,13 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param path - Путь или Accessor.
    * @returns Был ли выполнен откат.
    */
-  undo<P extends string>(path: PathOrError<T, P, D> | Accessor<any>): boolean;
-
-  /**
-   * Повторить откат изменения по пути.
-   * @param path - Путь или Accessor.
-   * @returns Был ли выполнен повтор.
-   */
-  redo<P extends string>(path: PathOrError<T, P, D> | Accessor<any>): boolean;
+  undo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
 
   /**
    * Принудительно вызвать обновления по cacheKey.
    * @param cacheKey - Ключ или набор ключей.
    */
-  invalidate(cacheKey: CacheKey<T, D>): void;
+  invalidate<const P extends PathOrAccessor<T, D>>(cacheKey: P): void;
 
   /**
    * Выполнить пакетное обновление состояния.

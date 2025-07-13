@@ -1,9 +1,8 @@
-// Refactored ObservableStore implementation with reactive proxy assignment, cache-key-based subscription filtering, and periodic cleanup
 //index.ts
 import {
   Middleware,
   Subscriber,
-  CacheKey,
+  PathOrAccessor,
   ObservableStore,
   SubscriptionMeta,
   Accessor,
@@ -147,7 +146,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   // resolve paths from proxies or strings
   const resolve = (p: string | Accessor<any>) => getStringPath(p);
   const historyMgr = new HistoryManager<T, D>(
-    options.customLimitsHistory(rawState) ?? [],
+    options?.customLimitsHistory?.(rawState) ?? [],
     resolve
   );
 
@@ -304,18 +303,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
   // placeholder for store
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
-  store.state = stateProxy as T;
-  store.$ = stateProxy as T;
-  // Object.defineProperty(store, "state", {
-  //   get: () => stateProxy as T,
-  //   enumerable: true,
-  //   configurable: true,
-  // });
-  // Object.defineProperty(store, "$", {
-  //   get: () => stateProxy as T,
-  //   enumerable: true,
-  //   configurable: true,
-  // });
+
+  Object.defineProperty(store, "$", {
+    get: () => stateProxy as T,
+    enumerable: true,
+    configurable: true,
+  });
   // notification: global subscribers filtered by cacheKeys
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
@@ -342,7 +335,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   // core update logic
-  const doUpdate = (path: string, newVal: any, skipHistory = false) => {
+  const doUpdate = (
+    path: string,
+    newVal: any,
+    skipHistory = false,
+    keepQuiet = false
+  ) => {
     const oldVal = getRaw(path);
     const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
     if (isSkipUpdate.bool) return;
@@ -357,6 +355,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
 
     setRaw(path, newVal);
+    if (keepQuiet) return;
     notifyInvalidate(path);
   };
   // Package Update Wrapper
@@ -400,16 +399,20 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   // API methods
-  store.update = (pathOrAccessor, valueOrFn) => {
+  store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
     let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
 
-    if (batching) {
+    if (batching && !options?.keepQuiet) {
       currentPending()!.set(path, newVal);
     } else {
-      doUpdate(path, newVal);
+      doUpdate(path, newVal, false, options?.keepQuiet);
     }
+  };
+
+  store.update.quiet = (pathOrAccessor, valueOrFn) => {
+    store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
   store.asyncUpdate = async (
@@ -528,7 +531,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.subscribeToPath = (
     pathOrAccessor,
     cb,
-    opts: { immediate?: boolean; cacheKeys?: CacheKey<T, D>[] } = {}
+    opts: {
+      immediate?: boolean;
+      cacheKeys?: readonly PathOrAccessor<T, D>[];
+    } = {}
   ) => {
     validatePath(pathOrAccessor);
 

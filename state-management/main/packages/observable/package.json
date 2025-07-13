@@ -1,10 +1,10 @@
 {
   "name": "@qtpy/state-management-observable",
-  "version": "0.6.12",
+  "version": "0.6.23",
   "type": "module",
   "author": "QtPy",
   "license": "MIT",
-  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/main/packages/observable/README.md",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",

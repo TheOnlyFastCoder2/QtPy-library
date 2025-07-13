@@ -1,15 +1,14 @@
 import { useSyncExternalStore, useRef, useEffect } from "react";
 import { createObservableStore } from "@qtpy/state-management-observable";
-import {
+import type {
   Accessor,
-  CacheKey,
+  PathOrAccessor,
   Middleware,
   PathOrError,
-  PathExtract,
   MaxDepth,
   PathLimitEntry,
 } from "@qtpy/state-management-observable/types";
-import { ReactStore, UseStoreReturnType } from "./types";
+import type { ReactStore, useStoreReturn } from "./types";
 
 export { createObservableStore };
 
@@ -37,56 +36,38 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
    * Хук для подписки на несколько путей в сторе, без useCallback
    */
   function useStore<
-    P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
+    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
   >(
     paths: P,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): UseStoreReturnType<T, P, D> {
-    const cacheKeys = options?.cacheKeys ?? [];
+    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
+  ): useStoreReturn<T, P, D> {
+    const cacheKeys = [...paths, ...(options?.cacheKeys ?? [])];
 
-    const pathsRef = useRef<P>(paths);
-    const keysRef = useRef<CacheKey<T, D>[]>(cacheKeys);
-    pathsRef.current = paths;
-    keysRef.current = cacheKeys;
-
-    const snapshotRef = useRef<UseStoreReturnType<T, P, D>>(
-      paths.map((p) => store.get(p as any)) as UseStoreReturnType<T, P, D>
+    const snapshotRef = useRef<useStoreReturn<T, P, D>>(
+      cacheKeys.map((p) => store.get(p as any)) as useStoreReturn<T, P, D>
     );
 
     const getSnapshot = () => snapshotRef.current;
-    const subscribe = (onStoreChange: () => void) => {
-      const unsubscribe = store.subscribe(() => {
-        const next = pathsRef.current.map((p) =>
+
+    const subscribe = (onChange: () => void) => {
+      return store.subscribe(() => {
+        snapshotRef.current = cacheKeys.map((p) =>
           store.get(p as any)
-        ) as UseStoreReturnType<T, P, D>;
-        if (next.some((v, i) => !Object.is(v, snapshotRef.current[i]))) {
-          snapshotRef.current = next;
-          onStoreChange();
-        }
-      }, keysRef.current);
-      return unsubscribe;
+        ) as useStoreReturn<T, P, D>;
+        onChange();
+      }, cacheKeys as any);
     };
 
-    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+    return useSyncExternalStore(subscribe, getSnapshot);
   }
-
-  /**
-   * Хук для одного поля: [value, setValue]
-   */
-  function useField<R>(
-    path: Accessor<R>,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): readonly [R, (v: R) => void];
-
-  function useField<P extends string>(
-    path: PathOrError<T, P, D>,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): readonly [PathExtract<T, D, P>, (v: PathExtract<T, D, P>) => void];
 
   function useField(path: any, options?: any) {
     const [value] = useStore([path], options);
-    const setValue = (newValue: any) => {
-      store.update(path, newValue);
+    const setValue = function (valueOrFunc: any) {
+      store.update(path, valueOrFunc);
+    };
+    setValue.quiet = (valueOrFunc: any) => {
+      store.update(path, valueOrFunc, { keepQuiet: true });
     };
     return [value, setValue] as const;
   }
@@ -95,28 +76,31 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
    * Хук-эффект: вызывает effect при изменении значений по путям
    */
   function useStoreEffect<
-    P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
+    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
   >(
     paths: [...P],
-    effect: (values: UseStoreReturnType<T, P, D>) => void,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
+    effect: (values: useStoreReturn<T, P, D>) => void,
+    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
   ) {
     //@ts-ignore
     const values = useStore(paths, options);
+
     useEffect(() => {
       effect(values);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [effect, ...values]);
   }
 
-  const reloadComponents = (cacheKeys: CacheKey<T, D>[]) => {
+  const reloadComponents = (cacheKeys: PathOrAccessor<T, D>[]) => {
     cacheKeys.forEach((key) => store.invalidate(key));
   };
 
   store.useStore = useStore;
-  store.useField = useField;
+  store.useField = useField as ReactStore<T, D>["useField"];
   store.useEffect = useStoreEffect;
-  store.reloadComponents = reloadComponents;
+  store.reloadComponents = reloadComponents as ReactStore<
+    T,
+    D
+  >["reloadComponents"];
 
   return store;
 }

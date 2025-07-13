@@ -3,7 +3,7 @@
 // import { fastDeepHash } from "./test";
 import {
   Accessor,
-  CacheKey,
+  PathOrAccessor,
   ObservableStore,
   MaxDepth,
   SafePaths,
@@ -179,25 +179,11 @@ export function getStringPath<T extends object>(
     return full.slice(dollarIndex + 2);
   }
 
-  // 2) Ищем любую вхождение ".state." и обрезаем всё до и включая ".state."
-  const dotState = ".state.";
-  const idxDotState = full.indexOf(dotState);
-  if (idxDotState >= 0) {
-    return full.slice(idxDotState + dotState.length);
-  }
-
-  // 3) Если строка начинается с "state." — убираем его
-  const statePrefix = "state.";
-  if (full.startsWith(statePrefix)) {
-    return full.slice(statePrefix.length);
-  }
-
-  // Иначе возвращаем без изменений
   return full;
 }
 
 /**
- * Приводит CacheKey к “одиночной” строке.
+ * Приводит PathOrAccessor к “одиночной” строке.
  *
  * Теперь, если мы видим функцию, чьё имя первого аргумента — "t",
  * считаем её Accessor’ом и разбираем через getStringPath.
@@ -205,7 +191,7 @@ export function getStringPath<T extends object>(
  * считаем, что это функция вида (store) => строка, вызываем её и берём результат.
  */
 export function normalizeCacheKey<T, D extends number = MaxDepth>(
-  cacheKey: CacheKey<T, D>,
+  cacheKey: PathOrAccessor<T, D>,
   store: ObservableStore<T, D>
 ): string {
   // 1. Массив ключей (групповая инвалидация)
@@ -217,31 +203,10 @@ export function normalizeCacheKey<T, D extends number = MaxDepth>(
       .join(".");
   }
 
-  // 2. Функция (или Accessor)
   if (typeof cacheKey === "function") {
-    const fnString = cacheKey.toString().trim();
-
-    // Простейшая эвристика: является ли это Accessor
-    const accessorPattern = /^\s*(?:\(\s*t\s*\)|t)\s*=>/;
-
-    if (accessorPattern.test(fnString)) {
-      try {
-        return getStringPath(cacheKey as Accessor<any>);
-      } catch {
-        return "";
-      }
-    }
-
-    // Обычная функция
-    try {
-      const result = (cacheKey as (state: T) => unknown)(store.state);
-      return result != null ? String(result) : "";
-    } catch {
-      return "";
-    }
+    return getStringPath(cacheKey as Accessor<any>);
   }
 
-  // 3. Примитив (string | number | boolean | null | undefined)
   return cacheKey == null ? "" : String(cacheKey);
 }
 

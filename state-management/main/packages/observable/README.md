@@ -13,16 +13,16 @@
 
 2. [Пример создания основного store (с middleware)](#пример-создания-основного-store-с-middleware)  
    2.1 [Что делает `DepthPath` и зачем он нужен](#что-делает-DepthPath-и-зачем-он-нужен)  
-   2.2 [Что такое `Accessor` и зачем он нужен](#что-такое-Accessor-и-зачем-он-нужен)
+   2.2 [Что такое `Accessor` и зачем он нужен](#что-такое-Accessor-и-зачем-он-нужен)  
+   2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)
 
 3. [API createObservableStore](#api-createobservablestore)  
-   3.1. [`store.state` / `store.$`](#storestate--store)  
-   3.2. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
-   3.3. [`store.subscribeToPath(pathOrAccessor, callback, options?)`](#storesubscribetopathpathoraccessor-callback-options)  
-   3.4. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
-   3.5. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
-   3.6. [`store.update(pathOrAccessor, valueOrFn)`](#storeupdatepathoraccessor-valueorfn)  
-   3.7. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)
+   3.1. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
+   3.2. [`store.subscribeToPath(pathOrAccessor, callback, options?)`](#storesubscribetopathpathoraccessor-callback-options)  
+   3.3. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
+   3.4. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
+   3.5. [`store.update(pathOrAccessor, valueOrFn, options)`](#storeupdatepathoraccessor-valueorfn-options)  
+   3.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)
 
 4. [Асинхронные обновления](#асинхронные-обновления)  
    4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
@@ -60,7 +60,7 @@
 
 1. #### Прозрачный Proxy
 
-   Все обращения к состоянию (`state`) проходят через JavaScript Proxy, позволяющий автоматически отслеживать чтения и записи.
+   Все обращения к состоянию (`$`) проходят через JavaScript Proxy, позволяющий автоматически отслеживать чтения и записи.
 
    - При чтении Proxy «собирает» зависимости: какие участки состояния используются внутри разных Accessor’ов или подписок.
    - При записи Proxy перехватывает изменение и в конце вызывает цепочку middleware и нотификации подписчиков.
@@ -83,7 +83,7 @@
 
 3. #### Подписки с «гранулярностью» путей
 
-   - Можно подписаться на любое конкретное поле вложенного объекта, используя либо строку-путь (`"user.settings.theme"`), либо Accessor: `(t) => store.state.user.settings.theme`.
+   - Можно подписаться на любое конкретное поле вложенного объекта, используя либо строку-путь (`"user.settings.theme"`), либо Accessor: `(t) => store.$.user.settings.theme`.
    - При изменении именно этого поля подписчики получат уведомление. Изменения в других полях не затронут эту подписку.
 
 4. #### Кэш-ключи (cacheKeys)
@@ -123,11 +123,9 @@
 import {
   createObservableStore,
   Middleware,
-  Accessor,
-  SubscriptionCallback,
-} from "./index";
+} from "@qtpy/state-management-observable";
 // 1) Определяем начальный interface :
-export interface StoreState {
+interface StoreState {
   user: {
     name: string;
     age: number;
@@ -175,15 +173,15 @@ export const store = createObservableStore<StoreState, DepthPath>(
   initialState,
   [loggerMiddleware], // цепочка middleware
   {
-    customLimitsHistory: (state) => [
+    customLimitsHistory: ($) => [
       // Для свойства counter сохраняем до 3 предыдущих состояний
       ["counter", 3],
       // Для locale — до 2 состояний
       ["user.settings.locale", 2],
       // Для 4-го элемента массива items через аксцессор — до 3 состояний
-      [() => state.items[3], 3],
+      [() => $.items[3], 3],
       // Для всего массива items — до 3 состояний
-      [() => state.items, 3],
+      [() => $.items, 3],
     ],
   }
 );
@@ -327,27 +325,115 @@ store.subscribeToPath(
 
 ---
 
-## API `createObservableStore`
+## Что такое `CacheKeys` и зачем они нужен
 
-### `store.state` / `store.$`
-
-- **Что это:** реактивный Proxy-объект с текущим состоянием (readonly снаружи).
-
-- **Как пользоваться:**
-
-  ```ts
-  // Чтение:
-  console.log(store.state.user.name); // "Alice"
-  console.log(store.$.items.length); // 3
-
-  // Прямая запись (через Proxy) «автоматом» вызывает middleware и нотификации подписчиков:
-  store.state.user.name = "Bob";
-  store.state.items.push(4);
-  ```
-
-- **Примечание:** `store.$` — это просто синоним `store.state`. Удобно для внутрянки.
+`cacheKeys` — это **специальное поле в состоянии `store`**, которое позволяет задавать **кастомные пути для кеширования или подписки**, в том числе с **автодополнением и типовой безопасностью**.
 
 ---
+
+### Для чего это нужно
+
+Иногда нам нужно явно указать, **какие части состояния можно инвалидировать, подписывать или использовать в автодополнении**, особенно если они **формируются динамически** или зависят от логики.
+
+В таких случаях на помощь приходит `cacheKeys` — объект, в котором мы описываем возможные "виртуальные" пути, которые будут:
+
+- ✅ поддерживать **автодополнение**
+- ✅ работать с методами `store.invalidate(...)`, `store.subscribeToPath(...)` и др.
+- ✅ проверяться **типами** при использовании
+
+---
+
+### Пример
+
+```ts
+interface StoreState {
+  items: number[];
+  counter: number;
+  cacheKeys?: {
+    "lol.items": number[]; // <- виртуальный путь
+  };
+}
+
+const initialState = {
+  items: [1, 2, 3],
+  counter: 0,
+};
+
+export const store = createObservableStore<StoreState>(initialState, []);
+```
+
+Теперь можно использовать путь `"cacheKeys.lol.items.0"` в методах:
+
+```ts
+store.invalidate("cacheKeys.lol.items.0");
+```
+
+> ☝️ Это путь не к реальным данным, а к **виртуальному представлению**, которое вы определили в `cacheKeys`.
+
+---
+
+### Автодополнение
+
+Добавив ключ в `cacheKeys`, вы получаете:
+
+- ✅ Поддержку автодополнения в строках путей
+- ✅ Подсказки по индексам (если это массив)
+- ✅ Безопасность при работе с методами `invalidate`, `subscribeToPath`, `get` и др.
+
+---
+
+### Как это работает под капотом
+
+- `cacheKeys` — это просто поле в типе состояния, которое **не обязательно должно существовать в `initialState`**.
+- Оно используется **только для построения типа возможных путей**.
+- Вы можете задавать вложенные объекты и массивы, чтобы IDE и типы могли "понять", что доступно по строковому пути.
+
+---
+
+### Пример с подпиской
+
+```ts
+store.subscribeToPath("cacheKeys.lol.items.2", (val) => {
+  console.log("Элемент lol.items[2] изменился:", val);
+});
+```
+
+---
+
+### Зачем использовать `cacheKeys`, если можно напрямую
+
+```ts
+store.invalidate("cacheKeys.lol.items.0");
+```
+
+**Вместо:**
+
+```ts
+store.invalidate("lol.items.0"); // ❌ Может не существовать или не иметь автодополнения
+```
+
+`cacheKeys` позволяет:
+
+- ✅ Явно указать, какие ключи **имеют смысл**
+- ✅ Сделать систему **расширяемой и предсказуемой**
+- ✅ Избежать магии и багов, связанных с "плавающими" строками
+
+---
+
+## ⚠️ На заметку
+
+- `cacheKeys` — **исключительно типовая конструкция**, не обязательная в `initialState`
+- Работает даже если `cacheKeys` нет в runtime, **главное — чтобы она была в интерфейсе `StoreState`**
+- Можно использовать вместе с `Accessor`, если путь динамический:
+
+```ts
+const idx = 1;
+store.invalidate((t) => store.$["cacheKeys"].lol.items[t(idx)]);
+```
+
+---
+
+## API `createObservableStore`
 
 ### `store.subscribe(callback, cacheKeys?)`
 
@@ -392,7 +478,7 @@ store.subscribeToPath(
   1. `pathOrAccessor: string | Accessor<any>`
 
      - **`string`**: например, `"user.age"` или `"items.0"`
-     - **`Accessor<any>`**: функция `(t?) => store.state.some.nested[t(dynamicIndex), …]`
+     - **`Accessor<any>`**: функция `(t?) => store.$.some.nested[t(dynamicIndex), …]`
        — если вам нужно подписаться, но индекс вычисляется динамически, можно передать Accessor.
 
   2. `callback: (newValue: any) => void` — вызывается при изменении указанного пути.
@@ -415,7 +501,7 @@ store.subscribeToPath(
   //    Здесь index может меняться динамически внутри Accessor через t(index)
   let idx = 0;
   const unsubFirstItem = store.subscribeToPath(
-    (t) => store.state.items[t(idx)], // Accessor<any>
+    (t) => store.$.items[t(idx)], // Accessor<any>
     (val) => console.log("Первый элемент массива:", val),
     { cacheKeys: ["counter"] }
   );
@@ -457,21 +543,25 @@ store.subscribeToPath(
 
   // Пример с Accessor: читаем элемент массива по динамическому индексу
   let idx = 1;
-  const firstItem = store.get((t) => store.state.items[t(idx)]);
+  const firstItem = store.get((t) => store.$.items[t(idx)]);
   console.log("Второй элемент массива:", firstItem); // 2
   ```
 
 ---
 
-### `store.update(pathOrAccessor, valueOrFn)`
+### `store.update(pathOrAccessor, valueOrFn, options)`
 
 - **Что делает:** синхронно обновляет значение по заданному `pathOrAccessor`
+
   - Перед обновлением создаётся снимок (snapshot) текущей структуры объекта или массива без инстанцирования нового экземпляра.
   - Старое значение сохраняется в историю (до `maxHistoryLength`).
   - Запускаются middleware (в порядке регистрации).
   - Применяется фактическое обновление.
   - После обновления формируется новый снимок и сравниваются хеши старого и нового состояний, чтобы точно определить, что изменилось.
   - Подписчики уведомляются только при реальных отличиях в данных.
+
+- **параметры**
+  - options.keepQuiet - Если true, обновление не будет уведомлять подписчиков, даже если данные изменились.
 
 2. **Прямым значением**:
 
@@ -485,26 +575,37 @@ store.subscribeToPath(
    store.update("user.age", (cur) => cur + 1);
    ```
 
-4. **Если Accessor**: например,
+4. **`store.update.quiet(pathOrAccessor, valueOrFn, options)`** изменяет значения без уведомлений подписок:
+
+   ```ts
+   store.update.quiet("user.age", 36);
+   ```
+
+5. **Если Accessor**: например,
 
    ```ts
    let idx = 2;
    store.update(
-     (t) => store.state.items[t(idx)],
+     (t) => store.$.items[t(idx)],
      (cur) => cur * 10
    );
    ```
 
    — тут `t(idx)` возвращает число `2`, и обновится `items[2]`.
 
-5. **Через Proxy и методы массивов:** любые прямые присваивания через `store.state` **и** косвенные мутации массивов через методы (`push`, `splice` и т.п.) перехватываются Proxy, обрабатываются как обновления и вызывают уведомления подписчиков.
+6. **Через Proxy и методы массивов:** любые прямые присваивания через `store.state` **и** косвенные мутации массивов через методы (`push`, `splice` и т.п.) перехватываются Proxy, обрабатываются как обновления и вызывают уведомления подписчиков.
 
 - **Примеры:**
 
   ```ts
+  store.update.quite("user.age", 36);
+  // 4) Использование keepQuiet:
+  store.update("user.age", 36, { keepQuiet: true });
+  // Подписчики не будут уведомлены об этом изменении.
+
   // Косвенные мутации через методы:
-  store.state.items.push(2323);
-  store.state.items.splice(2, 1);
+  store.$.items.push(2323);
+  store.$.items.splice(2, 1);
 
   // 1) Обновление через строковый путь:
   store.update("user.age", 35);
@@ -512,13 +613,13 @@ store.subscribeToPath(
 
   // 2) Обновление через Accessor + динамический индекс:
   let dynamicIdx = 0;
-  store.update((t) => store.state.items[t(dynamicIdx)], 42);
+  store.update((t) => store.$.items[t(dynamicIdx)], 42);
   // После этого items[0] станет 42.
 
   // 3) Прямые присваивания через Proxy:
   //    Proxy автоматически делегирует на store.update
-  store.state.user.name = "Charlie";
-  store.state.items[1] = 100;
+  store.$.user.name = "Charlie";
+  store.$.items[1] = 100;
   // → Подписчики на "user.name" и "items.1" получат нотификацию.
   // Подписываемся на изменения в пути "items"
   store.subscribeToPath("items", () => {
@@ -589,7 +690,7 @@ console.log("Будет следующий counter:", nextCounter);
 - **Пример:**
 
   ```ts
-  // Загрузим список с сервера и запишем в state.items:
+  // Загрузим список с сервера и запишем в $.items:
   await store.asyncUpdate(
     "items",
     async (currentItems, signal) => {
@@ -648,10 +749,10 @@ console.log("Будет следующий counter:", nextCounter);
 
   // 2) С прямыми присваиваниями:
   await store.batch(() => {
-    store.state.user.name = "Charlie";
-    store.state.user.age = 23;
-    store.state.items[0] = 100;
-    store.state.items[0] = 200; // два присваивания
+    store.$.user.name = "Charlie";
+    store.$.user.age = 23;
+    store.$.items[0] = 100;
+    store.$.items[0] = 200; // два присваивания
   });
   // Подписчики увидят изменения:
   // "user.name", "user.age", "items.0" — со значением 200
@@ -661,7 +762,7 @@ console.log("Будет следующий counter:", nextCounter);
 
 ## История изменений (undo/redo)
 
-- **Важно:** история не реагирует на косвенные изменения массивов через методы (например, `store.state.items.push(23)`), поэтому такие правки **не** попадают в стек `undo/redo`.
+- **Важно:** история не реагирует на косвенные изменения массивов через методы (например, `store.$.items.push(23)`), поэтому такие правки **не** попадают в стек `undo/redo`.
 
 ### `store.undo(pathOrAccessor)`
 
@@ -747,14 +848,14 @@ console.log("Будет следующий counter:", nextCounter);
 - Middleware вызываются **только** при:
 
   1. вызове `store.update(...)`, или
-  2. прямой записи через Proxy (`store.state.some.key = newValue`).
+  2. прямой записи через Proxy (`store.$.some.key = newValue`).
 
 - Если обновление обойти Proxy (например, напрямую поменять внутренний «сырой» объект вне Proxy), middleware не запустятся.
 
 ```ts
 // Гарантированная активация middleware:
 store.update("user.name", "Dmitry");
-store.state.user.name = "Dmitry"; // Proxy перехватывает и идёт через middleware
+store.$.user.name = "Dmitry"; // Proxy перехватывает и идёт через middleware
 
 // НЕ активирует middleware (не рекомендуется):
 // (внутренний «сырый» объект здесь не трогает Proxy)

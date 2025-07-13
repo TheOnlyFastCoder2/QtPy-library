@@ -1,157 +1,63 @@
+Вот содержание для твоей документации по `createReactStore`, оформленное в аналогичном стиле:
+
+---
+
+# Документация по `createReactStore`
+
+1. [Основная идея и архитектура](#основная-идея-и-архитектура)  
+   1.1. [Что такое `createReactStore`](#основная-идея-и-архитектура)  
+   1.2. [Как устроены подписки и хуки](#как-устроены-подписки-и-хуки)  
+   1.3. [Преимущества и особенности подхода](#преимущества-и-особенности-подхода)
+2. [API `createReactStore`](#1-api-createreactstore)  
+   2.1. [`store.get(path)`](#11-storegetpath-string--accessorany-any)  
+   2.2. [`store.update(path, value)`](#12-storeupdatepath-string--accessorany-value-any--cur-any--any-void)  
+   2.3. [`store.batch(callback)`](#13-storebatchcallback)  
+   2.4. [`store.asyncUpdate(path, asyncUpdater, options?)`](#14-storeasyncupdatepath-asyncupdater-options)  
+   2.5. [`store.cancelAsyncUpdates(path?)`](#15-storecancelasyncupdatespath-string--accessorany--void)  
+   2.6. [`store.reloadComponents(cacheKeys)`](#16-storereloadcomponentscachekeys-arraystring--accessorany-void)
+   2.7. [`store.useStore(paths, options?)`](#17-storeusestorepaths-arraystring--accessorany-options-any)  
+   2.8. [`store.useField(path, options?)`](#18-storeusefieldpath-string--accessorany-options-value-setvalue)  
+   2.9. [`store.useEffect(paths, effect, options?)`](#19-storeuseeffectpaths-arraystring--accessorany-effect-options)
+
+3. [Примеры использования](#2-пример-использования-хуков)  
+   3.1. [Типовое состояние `UserStore`](#типовое-состояние-userstore)  
+   3.2. [Компонент `Profile`](#компонент-profile)
+
+4. [Реализация игры 15-Puzzle](#3-реализация-игры-15-puzzle)  
+   4.1. [Логика хранилища и действий](#31-инициализация-хранилища-и-логика)  
+   4.2. [Компонент `Tile`](#32-компонент-плитки-tiletsx)  
+   4.3. [Компонент `PuzzleGame`](#33-основной-компонент-puzzlegametsx)
+
+5. [Итоги](#итоги)
+
+---
+
 ## Основная идея и архитектура
 
-`createReactStore` — это обёртка над `ObservableStore`, адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет несколько удобных хуков:
+`createReactStore` — это обёртка над `ObservableStore`, адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет удобные React-хуки:
+
+### Как устроены подписки и хуки
 
 - **`useStore`** — подписка на массив путей (строк или Accessor-ов), возвращающая их текущие значения и обновляющая компонент при изменении.
-- **`useField`** — более узкий хук для работы с одним путём (string или Accessor), возвращающий `[value, setValue]`.
-- **`useStoreEffect`** — хук-аналог `useEffect`, но срабатывает при изменении значений по указанным путям.
-- **`reloadComponents`** — ручная инвалидизация cacheKeys (при необходимости форсировать перерисовку).
+- **`useField`** — хук для работы с одним путём (строкой или Accessor), возвращающий `[value, setValue]`, где `setValue` имеет метод `.quiet()` для "тихого" обновления.
+- **`useEffect`** (реализован как `useStoreEffect`) — аналог `useEffect`, но срабатывает при изменении значений по указанным путям.
+- **`reloadComponents`** — ручная инвалидизация `cacheKeys` для форсированной перерисовки подписчиков.
 
-Под капотом:
+### Преимущества и особенности подхода:
 
-1. Мы создаём `ObservableStore` из библиотеки `@qtpy/state-management-observable` с помощью `createObservableStore(initialState, middlewares, options)`.
-2. Затем оборачиваем его React-хуками, основанными на `useSyncExternalStore` и подходе с `ref`-ами для хранения актуальных путей и ключей, без дополнительных мемоизаций функций.
-3. Вся подписка происходит через массивы путей вида `Array<string | Accessor<any>>`. Это позволяет подписываться на любое вложенное поле или вычисляемое значение.
+1. Используется `createObservableStore` из `@qtpy/state-management-observable`.
+2. Реализация React-хуков основана на `useSyncExternalStore`, с хранением путей и кешей через `useRef` для минимизации лишних подписок и ререндеров.
+3. Подписка осуществляется через массив путей вида `Array<string | Accessor<any>>`, что позволяет отслеживать вложенные и вычисляемые значения.
 
-Такой подход сохраняет всё преимущество «чистого» ядра `ObservableStore` (гибкие подписки с точностью до пути, middleware, batching, undo/redo и асинхронные обновления), при этом даёт знакомый интерфейс React-хуков и минимизирует boilerplate в компонентах.
-
----
-
-## 1. Пример создания React-хранилища
-
-```ts
-// createReactStore.ts
-import { useSyncExternalStore, useRef, useEffect } from "react";
-import { createObservableStore } from "@qtpy/state-management-observable";
-import {
-  Accessor,
-  CacheKey,
-  Middleware,
-  PathOrError,
-  PathExtract,
-  MaxDepth,
-  PathLimitEntry,
-} from "@qtpy/state-management-observable/types";
-import { ReactStore, UseStoreReturnType } from "./types";
-
-export { createObservableStore };
-
-/**
- * Создаёт ObservableStore и оборачивает его React-хуками
- * @param initialState - начальное состояние
- * @param middlewares - опциональный массив middleware
- * @param options - опции history
- */
-export function createReactStore<T extends object, D extends number = MaxDepth>(
-  initialState: T,
-  middlewares: Middleware<T, D>[] = [],
-  options: {
-    customLimitsHistory?: (state: T) => PathLimitEntry<T, D>[];
-  } = {}
-): ReactStore<T, D> {
-  const baseStore = createObservableStore<T, D>(
-    initialState,
-    middlewares,
-    options as any
-  );
-  const store = baseStore as ReactStore<T, D>;
-
-  /**
-   * Хук для подписки на несколько путей в сторе, без useCallback
-   */
-  function useStore<
-    P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
-  >(
-    paths: P,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): UseStoreReturnType<T, P, D> {
-    const cacheKeys = options?.cacheKeys ?? [];
-
-    const pathsRef = useRef<P>(paths);
-    const keysRef = useRef<CacheKey<T, D>[]>(cacheKeys);
-    pathsRef.current = paths;
-    keysRef.current = cacheKeys;
-
-    const snapshotRef = useRef<UseStoreReturnType<T, P, D>>(
-      paths.map((p) => store.get(p as any)) as UseStoreReturnType<T, P, D>
-    );
-
-    const getSnapshot = () => snapshotRef.current;
-    const subscribe = (onStoreChange: () => void) => {
-      const unsubscribe = store.subscribe(() => {
-        const next = pathsRef.current.map((p) =>
-          store.get(p as any)
-        ) as UseStoreReturnType<T, P, D>;
-        if (next.some((v, i) => !Object.is(v, snapshotRef.current[i]))) {
-          snapshotRef.current = next;
-          onStoreChange();
-        }
-      }, keysRef.current);
-      return unsubscribe;
-    };
-
-    return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-  }
-
-  /**
-   * Хук для одного поля: [value, setValue]
-   */
-  function useField<R>(
-    path: Accessor<R>,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): readonly [R, (v: R) => void];
-
-  function useField<P extends string>(
-    path: PathOrError<T, P, D>,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ): readonly [PathExtract<T, D, P>, (v: PathExtract<T, D, P>) => void];
-
-  function useField(path: any, options?: any) {
-    const [value] = useStore([path], options);
-    const setValue = (newValue: any) => {
-      store.update(path, newValue);
-    };
-    return [value, setValue] as const;
-  }
-
-  /**
-   * Хук-эффект: вызывает effect при изменении значений по путям
-   */
-  function useStoreEffect<
-    P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
-  >(
-    paths: [...P],
-    effect: (values: UseStoreReturnType<T, P, D>) => void,
-    options?: { cacheKeys?: CacheKey<T, D>[] }
-  ) {
-    //@ts-ignore
-    const values = useStore(paths, options);
-    useEffect(() => {
-      effect(values);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [effect, ...values]);
-  }
-
-  const reloadComponents = (cacheKeys: CacheKey<T, D>[]) => {
-    cacheKeys.forEach((key) => store.invalidate(key));
-  };
-
-  store.useStore = useStore;
-  store.useField = useField;
-  store.useEffect = useStoreEffect;
-  store.reloadComponents = reloadComponents;
-
-  return store;
-}
-```
+Такой подход сохраняет преимущество "чистого" ядра `ObservableStore` (подписки по пути, middleware, batching, undo/redo, async), но даёт удобный интерфейс React-хуков с минимальным boilerplate.
 
 ---
 
-## 2. API `createReactStore`
+## 1. API `createReactStore`
 
-### 2.1. `store.get(path: string | Accessor<any>): any`
+### 1.1. `store.get(path: string | Accessor<any>): any`
 
-Получает текущее значение из состояния по указанному пути (строка, например `"user.name"`) или по Accessor-функции. Если путь не найден, возвращает `undefined`.
+Получает значение из состояния по строковому пути (`"user.name"`) или по Accessor-функции. Если путь не найден — возвращает `undefined`.
 
 ```ts
 const name = userStore.get("user.name");
@@ -160,21 +66,23 @@ const firstItem = listStore.get(() => listStore.state.items[0]);
 
 ---
 
-### 2.2. `store.update(path: string | Accessor<any>, value: any | (cur:any)=>any): void`
+### 1.2. `store.update(path: string | Accessor<any>, value: any | (cur: any) => any): void`
 
-Синхронно обновляет значение по заданному пути/Accessor. Если передан колбэк `(cur)=>next`, вычисляет следующую версию. После применения вызываются middleware и нотифицируются подписчики (если не внутри `.batch()`).
+Синхронно обновляет значение по пути. Можно передать новое значение или функцию `(cur) => next`. После обновления вызываются middleware и уведомляются подписчики.
 
 ```ts
 userStore.update("user.age", 25);
 userStore.update("user.age", (cur) => cur + 1);
-userStore.state.user.name = "Eve"; // то же через Proxy
+
+// альтернатива через Proxy:
+userStore.state.user.name = "Eve";
 ```
 
 ---
 
-### 2.3. `store.batch(callback: () => void): void`
+### 1.3. `store.batch(callback)`
 
-Группирует несколько изменений внутри одного батча. Уведомления подписчикам откладываются до выхода из `callback`.
+Группирует обновления. Подписчики уведомляются один раз по завершении `callback`.
 
 ```ts
 store.batch(() => {
@@ -186,20 +94,20 @@ store.batch(() => {
 
 ---
 
-### 2.4. `store.asyncUpdate(path, asyncUpdater, options?)`
+### 1.4. `store.asyncUpdate(path, asyncUpdater, options?)`
 
-Асинхронное обновление с возможностью отмены предыдущих запросов (через `AbortSignal`).
+Асинхронное обновление значения с возможностью отмены.
 
-- `path` — строка или Accessor.
-- `asyncUpdater(currentValue, signal): Promise<nextValue>`.
-- `options.abortPrevious?: boolean` (по умолчанию `false`).
+- `path: string | Accessor`
+- `asyncUpdater(cur, signal): Promise<next>`
+- `options.abortPrevious?: boolean` — отменить предыдущий вызов для этого пути.
 
 ```ts
 await store.asyncUpdate(
   "items",
   async (cur, signal) => {
     const response = await fetch("/api", { signal });
-    return response.json();
+    return await response.json();
   },
   { abortPrevious: true }
 );
@@ -207,9 +115,9 @@ await store.asyncUpdate(
 
 ---
 
-### 2.5. `store.cancelAsyncUpdates(path?: string | Accessor<any>): void`
+### 1.5. `store.cancelAsyncUpdates(path?: string | Accessor<any>): void`
 
-Отменяет все незавершённые `asyncUpdate`. Если указан `path`, отменяет только для этого пути, иначе — для всех.
+Отменяет активные `asyncUpdate`. Без параметров отменяет все.
 
 ```ts
 store.cancelAsyncUpdates(); // отменить все
@@ -218,9 +126,9 @@ store.cancelAsyncUpdates("items"); // отменить только для "item
 
 ---
 
-### 2.6. `store.reloadComponents(cacheKeys: Array<string | Accessor<any>>): void`
+### 1.6. `store.reloadComponents(cacheKeys: Array<string | Accessor<any>>): void`
 
-Инвалидирует указанные `cacheKeys`, чтобы все подписчики, передавшие эти ключи при подписке, получили уведомление и обновили компонент.
+Инвалидирует указанные `cacheKeys`, чтобы подписанные компоненты перерисовались.
 
 ```ts
 store.reloadComponents(["user.preferences.theme"]);
@@ -228,14 +136,12 @@ store.reloadComponents(["user.preferences.theme"]);
 
 ---
 
-### 2.7. `store.useStore(paths: Array<string | Accessor<any>>, options?): any[]`
+### 1.7. `store.useStore(paths: Array<string | Accessor<any>>, options?): any[]`
 
-**React-хук.**
+Хук React для подписки на массив значений.
 
-- `paths: Array<string | Accessor<any>>` — список путей (например, `["user.name", "user.age"]` или `[()=>state.count, "todos.length"]`).
-- `options.cacheKeys?: Array<string | Accessor<any>>` — дополнительные ключи кеша.
-
-Возвращает массив текущих значений для каждого из путей. Компонент ререндерится, если хотя бы одно значение изменилось (или был вызван `reloadComponents` для одного из cacheKeys).
+- `paths` — список путей (строк или Accessor).
+- `options.cacheKeys?` — опциональные ключи кеша для ручной инвалидизации.
 
 ```tsx
 const [name, age] = userStore.useStore(["user.name", "user.age"]);
@@ -243,37 +149,32 @@ const [name, age] = userStore.useStore(["user.name", "user.age"]);
 
 ---
 
-### 2.8. `store.useField(path: string | Accessor<any>, options?): [value, setValue]`
+### 1.8. `store.useField(path: string | Accessor<any>, options?): [value, setValue]`
 
-**React-хук.**
-
-- `path: string | Accessor<any>` — один путь.
-- `options.cacheKeys?: Array<string | Accessor<any>>`.
-
-Возвращает кортеж `[value, setValue]`, где `value` — текущее значение, а `setValue` — функция для его обновления (`store.update(path, newValue)`).
+Хук React для одного значения. Возвращает кортеж `[value, setValue]`, где `setValue` — функция с методом `.quiet()`.
 
 ```tsx
 const [count, setCount] = counterStore.useField("counter.value");
-setCount((c) => c + 1);
+
+setCount(42); // обычное обновление
+setCount.quiet(43); // тихое обновление (без ререндеров)
 ```
 
 ---
 
-### 2.9. `store.useEffect(paths: Array<string | Accessor<any>>, effect, options?)`
+### 1.9. `store.useEffect(paths: Array<string | Accessor<any>>, effect, options?)`
 
-**React-хуковый аналог `useEffect`,** который вызывается, когда хотя бы одно из значений по `paths` меняется (или срабатывает `reloadComponents` по cacheKey).
+Хук, вызывающий `effect`, если изменилось хотя бы одно из значений по путям.
 
 ```tsx
-counterStore.useEffect(["counter.value"], ([current]) => {
-  console.log("Counter changed to", current);
+userStore.useEffect(["user.age"], ([age]) => {
+  console.log("Возраст изменился:", age);
 });
 ```
 
 ---
 
-## 3. Пример использования хуков
-
-Допустим, у нас есть простой стор:
+## 2. Пример использования хуков
 
 ```ts
 type UserState = {
@@ -287,22 +188,13 @@ export const userStore = createReactStore<UserState>({
 });
 ```
 
-И в каком-то компоненте мы хотим подписаться на `user.name` и `online`:
-
 ```tsx
-import React from "react";
-import { userStore } from "./userStore";
-
-export const Profile: React.FC = () => {
-  // Берём одновременно user.name и online
+const Profile: React.FC = () => {
   const [name, isOnline] = userStore.useStore(["user.name", "online"]);
-
-  // Подписываемся только на user.age
   const [age, setAge] = userStore.useField("user.age");
 
-  // Хук-эффект: срабатывает, когда возраст меняется
-  userStore.useEffect(["user.age"], ([currentAge]) => {
-    console.log("Новый возраст пользователя:", currentAge);
+  userStore.useEffect(["user.age"], ([age]) => {
+    console.log("Возраст пользователя изменился:", age);
   });
 
   return (
@@ -311,7 +203,7 @@ export const Profile: React.FC = () => {
         {name} {isOnline ? "🟢" : "🔴"}
       </h2>
       <p>Возраст: {age}</p>
-      <button onClick={() => setAge((a) => a + 1)}>Увеличить возраст</button>
+      <button onClick={() => setAge((a) => a + 1)}>+</button>
     </div>
   );
 };
@@ -325,13 +217,13 @@ export const Profile: React.FC = () => {
 
 ---
 
-## 4. Реализация игры 15-Puzzle
+## 3. Реализация игры 15-Puzzle
 
 Ниже приведён полный пример игры «15-Puzzle», построенной на `createReactStore`. Все пути задаются строками вида `"board.0.0"`, но мы можем также использовать Accessor-функции.
 
 ---
 
-### 4.1. Инициализация хранилища и логика
+### 3.1. Инициализация хранилища и логика
 
 ```ts
 // store.ts
@@ -431,7 +323,7 @@ export const shuffleTiles = () => {
 
 ---
 
-### 4.2. Компонент плитки `Tile.tsx`
+### 3.1. Компонент плитки `Tile.tsx`
 
 ```tsx
 // Tile.tsx
@@ -461,7 +353,7 @@ export const Tile = memo(({ row, col }: { row: number; col: number }) => {
 
 ---
 
-### 4.3. Основной компонент `PuzzleGame.tsx`
+### 3.3. Основной компонент `PuzzleGame.tsx`
 
 ```tsx
 // PuzzleGame.tsx
@@ -505,14 +397,14 @@ export const PuzzleGame: React.FC = () => {
 ## Итоги
 
 1. **Структура**. Мы создали `createReactStore`, используем массивы строк `string` или функций `Accessor<any>`.
-2. **Хуки**.
+1. **Хуки**.
 
    - `useStore(paths, { cacheKeys? })` — подписка на несколько полей.
    - `useField(path, { cacheKeys? })` — подписка на одно поле с функцией для обновления.
    - `useStoreEffect(paths, effect, { cacheKeys? })` — как `useEffect`, но срабатывает при изменении списка путей.
    - `reloadComponents(cacheKeys)` — вручную инвалидирует подписки по переданным ключам.
 
-3. **Игра 15-Puzzle** демонстрирует:
+1. **Игра 15-Puzzle** демонстрирует:
 
    - Как описать тип состояния и инициализировать его.
    - Как подписать компонент плитки только на нужное поле.
