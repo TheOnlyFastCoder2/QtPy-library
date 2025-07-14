@@ -1,7 +1,3 @@
-Вот содержание для твоей документации по `createReactStore`, оформленное в аналогичном стиле:
-
----
-
 # Документация по `createReactStore`
 
 1. [Основная идея и архитектура](#основная-идея-и-архитектура)  
@@ -9,15 +5,15 @@
    1.2. [Как устроены подписки и хуки](#как-устроены-подписки-и-хуки)  
    1.3. [Преимущества и особенности подхода](#преимущества-и-особенности-подхода)
 2. [API `createReactStore`](#1-api-createreactstore)  
-   2.1. [`store.get(path)`](#11-storegetpath-string--accessorany-any)  
-   2.2. [`store.update(path, value)`](#12-storeupdatepath-string--accessorany-value-any--cur-any--any-void)  
+   2.1. [`store.get(path)`](#11-storegetpathOrAccessor)  
+   2.2. [`store.update(path, value)`](#12-storeupdatepathOrAccessor-valueOrFunc)  
    2.3. [`store.batch(callback)`](#13-storebatchcallback)  
-   2.4. [`store.asyncUpdate(path, asyncUpdater, options?)`](#14-storeasyncupdatepath-asyncupdater-options)  
-   2.5. [`store.cancelAsyncUpdates(path?)`](#15-storecancelasyncupdatespath-string--accessorany--void)  
-   2.6. [`store.reloadComponents(cacheKeys)`](#16-storereloadcomponentscachekeys-arraystring--accessorany-void)
-   2.7. [`store.useStore(paths, options?)`](#17-storeusestorepaths-arraystring--accessorany-options-any)  
-   2.8. [`store.useField(path, options?)`](#18-storeusefieldpath-string--accessorany-options-value-setvalue)  
-   2.9. [`store.useEffect(paths, effect, options?)`](#19-storeuseeffectpaths-arraystring--accessorany-effect-options)
+   2.4. [`store.asyncUpdate(path, asyncUpdater, options?)`](#14-storeasyncupdatepathOrAccessor-asyncUpdater-options)  
+   2.5. [`store.cancelAsyncUpdates(path?)`](#15-storecancelasyncupdatespathOrAccessor)  
+   2.6. [`store.reloadComponents(cacheKeys)`](#16-storereloadcomponentspathOrAccessor)  
+   2.7. [`store.useStore(paths, options?)`](#17-storeusestorepathOrAccessor-options)  
+   2.8. [`store.useField(path, options?)`](#18-storeusefieldpathOrAccessor-options)  
+   2.9. [`store.useEffect(paths, effect, options?)`](#19-storeuseeffectpathOrAccessor-effect-options)
 
 3. [Примеры использования](#2-пример-использования-хуков)  
    3.1. [Типовое состояние `UserStore`](#типовое-состояние-userstore)  
@@ -55,7 +51,7 @@
 
 ## 1. API `createReactStore`
 
-### 1.1. `store.get(path: string | Accessor<any>): any`
+### 1.1. `store.get(pathOrAccessor)`
 
 Получает значение из состояния по строковому пути (`"user.name"`) или по Accessor-функции. Если путь не найден — возвращает `undefined`.
 
@@ -66,7 +62,7 @@ const firstItem = listStore.get(() => listStore.state.items[0]);
 
 ---
 
-### 1.2. `store.update(path: string | Accessor<any>, value: any | (cur: any) => any): void`
+### 1.2. `store.update(pathOrAccessor, valueOrFunc)`
 
 Синхронно обновляет значение по пути. Можно передать новое значение или функцию `(cur) => next`. После обновления вызываются middleware и уведомляются подписчики.
 
@@ -94,7 +90,7 @@ store.batch(() => {
 
 ---
 
-### 1.4. `store.asyncUpdate(path, asyncUpdater, options?)`
+### 1.4. `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
 
 Асинхронное обновление значения с возможностью отмены.
 
@@ -115,7 +111,7 @@ await store.asyncUpdate(
 
 ---
 
-### 1.5. `store.cancelAsyncUpdates(path?: string | Accessor<any>): void`
+### 1.5. `store.cancelAsyncUpdates(pathOrAccessor?)`
 
 Отменяет активные `asyncUpdate`. Без параметров отменяет все.
 
@@ -126,7 +122,7 @@ store.cancelAsyncUpdates("items"); // отменить только для "item
 
 ---
 
-### 1.6. `store.reloadComponents(cacheKeys: Array<string | Accessor<any>>): void`
+### 1.6. `store.reloadComponents(pathOrAccessor[])`
 
 Инвалидирует указанные `cacheKeys`, чтобы подписанные компоненты перерисовались.
 
@@ -136,7 +132,7 @@ store.reloadComponents(["user.preferences.theme"]);
 
 ---
 
-### 1.7. `store.useStore(paths: Array<string | Accessor<any>>, options?): any[]`
+### 1.7. `store.useStore(pathOrAccessor[], options?)`
 
 Хук React для подписки на массив значений.
 
@@ -149,7 +145,7 @@ const [name, age] = userStore.useStore(["user.name", "user.age"]);
 
 ---
 
-### 1.8. `store.useField(path: string | Accessor<any>, options?): [value, setValue]`
+### 1.8. `store.useField(pathOrAccessor, options?)`
 
 Хук React для одного значения. Возвращает кортеж `[value, setValue]`, где `setValue` — функция с методом `.quiet()`.
 
@@ -162,7 +158,7 @@ setCount.quiet(43); // тихое обновление (без ререндер�
 
 ---
 
-### 1.9. `store.useEffect(paths: Array<string | Accessor<any>>, effect, options?)`
+### 1.9. `store.useEffect(pathOrAccessor[], effect, options?)`
 
 Хук, вызывающий `effect`, если изменилось хотя бы одно из значений по путям.
 

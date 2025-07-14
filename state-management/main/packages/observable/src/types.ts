@@ -499,6 +499,13 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
   undo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
 
   /**
+   * возвращает откат по пути.
+   * @param path - Путь или Accessor.
+   * @returns Был ли выполнен откат.
+   */
+  redo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
+
+  /**
    * Принудительно вызвать обновления по cacheKey.
    * @param cacheKey - Ключ или набор ключей.
    */
