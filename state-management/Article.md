@@ -56,8 +56,8 @@ const initialState: AppState = {
   items: [1, 2, 3],
   theme: "light",
 };
-type DeepMax = 2;
-const store = createObservableStore<AppState, DeepMax>(initialState, [], {
+type DepthPath = 2;
+const store = createObservableStore<AppState, DepthPath>(initialState, [], {
   customLimitsHistory: ($) => [
     ["user.age", 5],
     [(t) => $.items[t(1)], 3],
