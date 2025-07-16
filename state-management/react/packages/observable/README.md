@@ -5,19 +5,14 @@
    1.2. [Как устроены подписки и хуки](#как-устроены-подписки-и-хуки)  
    1.3. [Преимущества и особенности подхода](#преимущества-и-особенности-подхода)
 2. [API `createReactStore`](#1-api-createreactstore)  
-   2.1. [`store.get(path)`](#11-storegetpathOrAccessor)  
-   2.2. [`store.update(path, value)`](#12-storeupdatepathOrAccessor-valueOrFunc)  
-   2.3. [`store.batch(callback)`](#13-storebatchcallback)  
-   2.4. [`store.asyncUpdate(path, asyncUpdater, options?)`](#14-storeasyncupdatepathOrAccessor-asyncUpdater-options)  
-   2.5. [`store.cancelAsyncUpdates(path?)`](#15-storecancelasyncupdatespathOrAccessor)  
-   2.6. [`store.reloadComponents(cacheKeys)`](#16-storereloadcomponentspathOrAccessor)  
-   2.7. [`store.useStore(paths, options?)`](#17-storeusestorepathOrAccessor-options)  
-   2.8. [`store.useField(path, options?)`](#18-storeusefieldpathOrAccessor-options)  
-   2.9. [`store.useEffect(paths, effect, options?)`](#19-storeuseeffectpathOrAccessor-effect-options)
+   2.1. [`store.reloadComponents(cacheKeys)`](#16-storereloadcomponentspathOrAccessor)  
+   2.2. [`store.useStore(paths, options?)`](#17-storeusestorepathOrAccessor-options)  
+   2.3. [`store.useField(path, options?)`](#18-storeusefieldpathOrAccessor-options)  
+   2.4. [`store.useEffect(paths, effect, options?)`](#19-storeuseeffectpathOrAccessor-effect-options)
 
 3. [Примеры использования](#2-пример-использования-хуков)  
-   3.1. [Типовое состояние `UserStore`](#типовое-состояние-userstore)  
-   3.2. [Компонент `Profile`](#компонент-profile)
+   3.1. [Типовое состояние `UserStore`](#21-типовое-состояние-userstore)  
+   3.2. [Компонент `Profile`](#22-компонент-profile)
 
 4. [Реализация игры 15-Puzzle](#3-реализация-игры-15-puzzle)  
    4.1. [Логика хранилища и действий](#31-инициализация-хранилища-и-логика)  
@@ -50,77 +45,6 @@
 ---
 
 ## 1. API `createReactStore`
-
-### 1.1. `store.get(pathOrAccessor)`
-
-Получает значение из состояния по строковому пути (`"user.name"`) или по Accessor-функции. Если путь не найден — возвращает `undefined`.
-
-```ts
-const name = userStore.get("user.name");
-const firstItem = listStore.get(() => listStore.state.items[0]);
-```
-
----
-
-### 1.2. `store.update(pathOrAccessor, valueOrFunc)`
-
-Синхронно обновляет значение по пути. Можно передать новое значение или функцию `(cur) => next`. После обновления вызываются middleware и уведомляются подписчики.
-
-```ts
-userStore.update("user.age", 25);
-userStore.update("user.age", (cur) => cur + 1);
-
-// альтернатива через Proxy:
-userStore.state.user.name = "Eve";
-```
-
----
-
-### 1.3. `store.batch(callback)`
-
-Группирует обновления. Подписчики уведомляются один раз по завершении `callback`.
-
-```ts
-store.batch(() => {
-  store.update("a", 1);
-  store.update("b", 2);
-  store.state.count += 1;
-});
-```
-
----
-
-### 1.4. `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
-
-Асинхронное обновление значения с возможностью отмены.
-
-- `path: string | Accessor`
-- `asyncUpdater(cur, signal): Promise<next>`
-- `options.abortPrevious?: boolean` — отменить предыдущий вызов для этого пути.
-
-```ts
-await store.asyncUpdate(
-  "items",
-  async (cur, signal) => {
-    const response = await fetch("/api", { signal });
-    return await response.json();
-  },
-  { abortPrevious: true }
-);
-```
-
----
-
-### 1.5. `store.cancelAsyncUpdates(pathOrAccessor?)`
-
-Отменяет активные `asyncUpdate`. Без параметров отменяет все.
-
-```ts
-store.cancelAsyncUpdates(); // отменить все
-store.cancelAsyncUpdates("items"); // отменить только для "items"
-```
-
----
 
 ### 1.6. `store.reloadComponents(pathOrAccessor[])`
 
@@ -172,6 +96,8 @@ userStore.useEffect(["user.age"], ([age]) => {
 
 ## 2. Пример использования хуков
 
+### 2.1. [Типовое состояние `UserStore`](#типовое-состояние-userstore)
+
 ```ts
 type UserState = {
   user: { name: string; age: number };
@@ -183,6 +109,8 @@ export const userStore = createReactStore<UserState>({
   online: false,
 });
 ```
+
+### 2.2. [Компонент `Profile`](#компонент-profile)
 
 ```tsx
 const Profile: React.FC = () => {
@@ -231,7 +159,7 @@ export type PuzzleState = {
   isSolved: boolean; // флаг «решена ли»
 };
 
-export const { $, state, ...puzzleStore } = createReactStore<PuzzleState>({
+export const { $, ...puzzleStore } = createReactStore<PuzzleState>({
   board: [
     [1, 2, 3, 4],
     [5, 6, 7, 8],
@@ -283,7 +211,7 @@ export const moveTile = (row: number, col: number) => {
 
   puzzleStore.batch(() => {
     // 1) Увеличиваем счётчик
-    $.moves += 1; // или state.moves += 1;
+    $.moves += 1;
 
     // 2) Меняем местами значения в board
     const tileValue = board[row][col]!;
