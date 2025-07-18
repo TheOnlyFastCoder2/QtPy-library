@@ -87,7 +87,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
 
     useEffect(() => {
       effect(values);
-    }, [effect, ...values]);
+    }, [...values]);
   }
 
   const reloadComponents = (cacheKeys: PathOrAccessor<T, D>[]) => {

@@ -229,24 +229,6 @@ export type ExtractPathType<
   : TypeError<`Key "${P}" does not exist in object`>;
 //prettier-ignore
 export type Decrement<N extends number> = 
-  N extends 30 ? 29 :
-  N extends 29 ? 28 :
-  N extends 28 ? 27 :
-  N extends 27 ? 26 :
-  N extends 26 ? 25 :
-  N extends 25 ? 24 :
-  N extends 24 ? 23 :
-  N extends 23 ? 22 :
-  N extends 22 ? 21 :
-  N extends 21 ? 20 :
-  N extends 20 ? 19 :
-  N extends 19 ? 18 :
-  N extends 18 ? 17 :
-  N extends 17 ? 16 :
-  N extends 16 ? 15 :
-  N extends 15 ? 14 :
-  N extends 14 ? 13 :
-  N extends 13 ? 12 :
   N extends 12 ? 11 :
   N extends 11 ? 10 :
   N extends 10 ? 9 :

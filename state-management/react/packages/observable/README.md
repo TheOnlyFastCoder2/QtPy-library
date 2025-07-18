@@ -25,7 +25,7 @@
 
 ## Основная идея и архитектура
 
-`createReactStore` — это обёртка над `ObservableStore`, адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет удобные React-хуки:
+`createReactStore` — это обёртка над [`@qtpy/state-management-observable`](https://www.npmjs.com/package/@qtpy/state-management-observable), адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет удобные React-хуки:
 
 ### Как устроены подписки и хуки
 
@@ -247,7 +247,7 @@ export const shuffleTiles = () => {
 
 ---
 
-### 3.1. Компонент плитки `Tile.tsx`
+### 3.2. Компонент плитки `Tile.tsx`
 
 ```tsx
 // Tile.tsx

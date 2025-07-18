@@ -287,13 +287,82 @@ export function wrapWithMetaUsingUUID(metaMap: MetaWeakMap, target: any): any {
 
 export function calculateSnapshotHash(obj: any): string | false {
   try {
-    const input = JSON.stringify(obj);
+    const input = stringify(obj);
     let hash = 5381;
     for (let i = 0; i < input.length; i++) {
-      hash = (hash * 33) ^ input.charCodeAt(i);
+      const code = input.charCodeAt(i);
+      hash = (((hash << 5) + hash) ^ code) >>> 0;
     }
     return (hash >>> 0).toString(16);
   } catch {
     return false;
   }
+}
+
+export function stringify(root: any): string {
+  type StackItem = string | { value: any; parentIsArray?: boolean };
+
+  const stack: StackItem[] = [{ value: root }];
+  const out: string[] = [];
+  const seen = new WeakSet();
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+
+    if (typeof current === "string") {
+      out.push(current);
+      continue;
+    }
+
+    let { value, parentIsArray } = current;
+
+    // Обработка примитивов
+    if (value == null || typeof value !== "object") {
+      if (value === undefined) {
+        out.push(parentIsArray ? "null" : "");
+      } else if (typeof value === "number") {
+        out.push(isFinite(value) ? value.toString() : "null");
+      } else {
+        out.push(JSON.stringify(value));
+      }
+      continue;
+    }
+
+    // Проверка циклических ссылок
+    if (seen.has(value)) {
+      out.push('"__cycle__"');
+      continue;
+    }
+    seen.add(value);
+
+    // Обработка массивов и объектов
+    if (Array.isArray(value)) {
+      if (value.length === 0) {
+        out.push("[]");
+        continue;
+      }
+      stack.push("]");
+      for (let i = value.length - 1; i >= 0; i--) {
+        stack.push({ value: value[i], parentIsArray: true });
+        if (i > 0) stack.push(",");
+      }
+      stack.push("[");
+    } else {
+      const keys = Object.keys(value);
+      if (keys.length === 0) {
+        out.push("{}");
+        continue;
+      }
+      stack.push("}");
+      for (let i = keys.length - 1; i >= 0; i--) {
+        const key = keys[i];
+        stack.push({ value: value[key] });
+        stack.push(`"${key}":`);
+        if (i > 0) stack.push(",");
+      }
+      stack.push("{");
+    }
+  }
+
+  return out.join("");
 }
