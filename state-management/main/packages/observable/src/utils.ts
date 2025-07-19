@@ -15,10 +15,10 @@ import {
  * Параметр t теперь — дженерик-функция <K>(arg: K) => K. Если t не используется, его можно опустить.
  *
  * @param fn Стрелочная функция вида:
- *   - (t) => obj.foo[t(bar),t(42)]
- *   - () => obj.foo.bar
+ *   - ($, t) => $.foo[t(bar),t(42)]
+ *   - ($) => $.foo.bar
  *   - u => u.arr[0]
- * @returns Строка вида "obj.foo.123.456" или "obj.foo.bar"
+ * @returns Строка вида "$.foo.123.456" или "obj.foo.bar"
  */
 export function getStringOfObject<T, D extends number = MaxDepth>(
   store: T,
