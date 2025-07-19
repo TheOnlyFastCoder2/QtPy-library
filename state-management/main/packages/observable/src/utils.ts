@@ -21,18 +21,18 @@ import {
  * @returns Строка вида "obj.foo.123.456" или "obj.foo.bar"
  */
 export function getStringOfObject<T, D extends number = MaxDepth>(
+  store: T,
   fn: Accessor<T>
 ): SafePaths<T, D> {
   const fnString = fn.toString().trim();
 
-  // === 1. Захватываем всё после "=>", включая новые строки, с учётом всех вариантов параметров ===
-  // Паттерн: /^\s*(?:\(\s*[\w$]*\s*\)|[\w$]+)\s*=>\s*([\s\S]+)$/
   const arrowMatch = fnString.match(
-    /^\s*(?:\(\s*[\w$]*\s*\)|[\w$]+)\s*=>\s*([\s\S]+)$/
+    /^\s*(?:\(\s*\$\s*(?:,\s*t\s*)?\s*\)|\$)\s*=>\s*([\s\S]+)$/
   );
+
   if (!arrowMatch) {
     throw new Error(
-      "Не удалось распарсить стрелочную функцию — ожидается синтаксис `() => ...`, `(t) => ...` или `t => ...`"
+      "Неверные аргументы функции — ожидается `($) => ...`, `$ => ...` или `($, t) => ...`"
     );
   }
 
@@ -86,7 +86,7 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
 
   // === 9. Вызываем fn(t), чтобы заполнить dynamicValues (игнорируем возможные ошибки доступа) ===
   try {
-    fn(t as any);
+    fn(store, t as any);
   } catch {
     // Просто игнорируем, если fn пыталась обратиться к реальным объектам вне области.
   }
@@ -99,13 +99,10 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
   }
 
   // === 11. Заменяем каждый t(expr) на полученное значение ===
-  let replacedPath = compactPath.replace(
-    /t\(\s*([^\)]+)\s*\)/g,
-    (_all, expr) => {
-      const v = nameToValue[expr];
-      return v === undefined ? "undefined" : String(v);
-    }
-  );
+  let replacedPath = compactPath.replace(tCallGlobal, (_all, expr) => {
+    const v = nameToValue[expr];
+    return v === undefined ? "undefined" : String(v);
+  });
 
   // === 12. Дальше обрабатываем статические индексы: ['foo'] → .foo, [123] → .123 ===
   replacedPath = replacedPath
@@ -160,6 +157,7 @@ export function validatePath(
  * @param path Строка или Accessor-функция
  */
 export function getStringPath<T extends object>(
+  store: T,
   path: string | Accessor<any>
 ): string {
   // Если это просто строка — используем её напрямую
@@ -168,9 +166,14 @@ export function getStringPath<T extends object>(
     full = path;
   } else {
     // path — функция-доступ
-    full = getStringOfObject<T>(path) as any;
+    full = getStringOfObject<T>(store, path) as any;
   }
-
+  // Проверяем, что перед `$` нет других символов, кроме пробелов
+  if (full.match(/[^\s].*\$/)) {
+    throw new Error(
+      `Недопустимый путь: "${full}". "$" должен быть в начале пути например: "($) => $.items.3" `
+    );
+  }
   // 1) Ищем "$." и обрезаем всё до и включая "$."
   const dollarIndex = full.indexOf("$.");
   if (dollarIndex >= 0) {
@@ -202,7 +205,7 @@ export function normalizeCacheKey<T, D extends number = MaxDepth>(
   }
 
   if (typeof cacheKey === "function") {
-    return getStringPath(cacheKey as Accessor<any>);
+    return getStringPath(store, cacheKey as Accessor<any>);
   }
 
   return cacheKey == null ? "" : String(cacheKey);

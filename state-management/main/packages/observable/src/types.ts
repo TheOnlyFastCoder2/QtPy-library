@@ -6,7 +6,7 @@
 
 export type MaxDepth = 0;
 
-/**
+/**a
  * Генерация строковых путей к значениям в массиве с поддержкой кортежей
  */
 type Range<
@@ -252,13 +252,13 @@ export type SafeUpdateFn<T, P, D extends number> = D extends 0
   ? (prev: any) => any
   : (prev: SafeExtract<T, P, D>) => SafeExtract<T, P, D>;
 
-export type AccessorSafeExtract<T> = T extends Accessor<infer R> ? R : any;
+export type AccessorSafeExtract<T> = T extends Accessor<T, infer R> ? R : any;
 
 /**
  * Тип функции-доступа (Accessor), возвращающей значение из состояния.
  * Например: (t) => state.user.board[0][t(dynamicValue)]
  */
-export type Accessor<R> = (t: <K>(arg: K) => K) => R;
+export type Accessor<T, R = any> = ($: T, t: <K>(arg: K) => K) => R;
 
 /**
  * Примитивные типы значений, поддерживаемые хранилищем.
@@ -270,7 +270,7 @@ export type ExtractPathReturn<
   T,
   P extends PathOrAccessor<T, D>,
   D extends number = MaxDepth
-> = P extends Accessor<infer V>
+> = P extends Accessor<T, infer V>
   ? V
   : P extends PathOrError<T, infer S, D>
   ? S extends string
@@ -283,7 +283,7 @@ export type CacheKeys<
   P extends readonly PathOrAccessor<T, D>[],
   D extends number = MaxDepth
 > = {
-  [K in keyof P]: P[K] extends Accessor<infer V>
+  [K in keyof P]: P[K] extends Accessor<T, infer V>
     ? V
     : P[K] extends PathOrError<T, infer S, D>
     ? S extends string
@@ -294,7 +294,7 @@ export type CacheKeys<
 
 export type PathOrAccessor<T, D extends number> =
   | PathOrError<T, string, D>
-  | Accessor<any>;
+  | Accessor<T, any>;
 
 /**
  * Колбэк для подписки на изменения.
@@ -319,7 +319,7 @@ export interface UpdateFunction<T, D extends number = MaxDepth> {
   ): void;
 
   // accessor-функция
-  <R>(path: Accessor<R>, value: R | ((prev: R) => R)): void;
+  <R>(path: Accessor<T, R>, value: R | ((prev: R) => R)): void;
 }
 
 /**
@@ -368,7 +368,7 @@ export type MetaData = {
 export type PathLimitEntry<T, D extends number> = [PathsEntry<T, D>, number];
 export type PathsEntry<T, D extends number> =
   | FilteredPaths<T, D>
-  | Accessor<any>;
+  | Accessor<T, any>;
 /**
  * Интерфейс реактивного хранилища состояния.
  *

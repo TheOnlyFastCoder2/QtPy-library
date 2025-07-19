@@ -56,9 +56,9 @@ const initialState: AppState = {
 };
 type DepthPath = 2;
 const store = createObservableStore<AppState, DepthPath>(initialState, [], {
-  customLimitsHistory: ($) => [
+  customLimitsHistory: () => [
     ["user.age", 5],
-    [(t) => $.items[t(1)], 3],
+    [($, t) => $.items[t(1)], 3],
   ],
 });
 

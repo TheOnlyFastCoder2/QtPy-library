@@ -159,7 +159,7 @@ export type PuzzleState = {
   isSolved: boolean; // флаг «решена ли»
 };
 
-export const { $, ...puzzleStore } = createReactStore<PuzzleState>({
+export const puzzleStore = createReactStore<PuzzleState>({
   board: [
     [1, 2, 3, 4],
     [5, 6, 7, 8],
@@ -211,16 +211,19 @@ export const moveTile = (row: number, col: number) => {
 
   puzzleStore.batch(() => {
     // 1) Увеличиваем счётчик
-    $.moves += 1;
+    puzzleStore.$.moves += 1;
 
     // 2) Меняем местами значения в board
     const tileValue = board[row][col]!;
     puzzleStore.update(`board.${row}.${col}`, null);
-    puzzleStore.update((t) => board[t(empty.row)][t(empty.col)], tileValue);
+    puzzleStore.update(
+      ($, t) => $.board[t(empty.row)][t(empty.col)],
+      tileValue
+    );
 
     // 3) Проверяем, решена ли головоломка
     const newBoard = puzzleStore.get(() => $.board)!;
-    puzzleStore.update(() => $.isSolved, checkSolved(newBoard));
+    puzzleStore.update(($) => $.isSolved, checkSolved(newBoard));
   });
 };
 
@@ -252,13 +255,13 @@ export const shuffleTiles = () => {
 ```tsx
 // Tile.tsx
 import { memo } from "react";
-import { puzzleStore, $, moveTile } from "./store";
+import { puzzleStore, moveTile } from "./store";
 
 export const Tile = memo(({ row, col }: { row: number; col: number }) => {
   // Подписываемся только на эту ячейку
-  const [value] = puzzleStore.useStore([(t) => $.board[t(row)][t(col)]]);
+  const [value] = puzzleStore.useStore([($, t) => $.board[t(row)][t(col)]]);
   // Подписываемся на флаг решения
-  const [isSolved] = puzzleStore.useField(() => $.isSolved);
+  const [isSolved] = puzzleStore.useField(($) => $.isSolved);
 
   return (
     <button
@@ -272,8 +275,8 @@ export const Tile = memo(({ row, col }: { row: number; col: number }) => {
 });
 ```
 
-- `useStore([(t) => $.board[t(row)][t(col)]])` — подписка на конкретное поле `$.board[t(row)][t(col)`.
-- `useField(() => $.isSolved)` — кортеж `[isSolved, setSolved]`, но мы здесь только читаем и отключаем кнопку, если головоломка решена.
+- `useStore([($, t) => $.board[t(row)][t(col)]])` — подписка на конкретное поле `puzzleStore.$.board[t(row)][t(col)`.
+- `useField(($) => $.isSolved)` — кортеж `[isSolved, setSolved]`, но мы здесь только читаем и отключаем кнопку, если головоломка решена.
 
 ---
 

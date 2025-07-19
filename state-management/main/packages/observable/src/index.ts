@@ -125,7 +125,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[] = [],
   options: {
-    customLimitsHistory?: (state: T) => PathLimitEntry<T, D>[];
+    customLimitsHistory?: () => PathLimitEntry<T, D>[];
   } = {}
 ): ObservableStore<T, D> {
   let rawState: T = { ...initialState };
@@ -144,9 +144,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
   const batchedInvalidations = new Set<string>();
 
   // resolve paths from proxies or strings
-  const resolve = (p: string | Accessor<any>) => getStringPath(p);
+  const resolve = (p: string | Accessor<any>) => getStringPath(rawState, p);
   const historyMgr = new HistoryManager<T, D>(
-    options?.customLimitsHistory?.(rawState) ?? [],
+    options?.customLimitsHistory?.() ?? [],
     resolve
   );
 
