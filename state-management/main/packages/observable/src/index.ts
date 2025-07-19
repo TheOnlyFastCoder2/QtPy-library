@@ -143,8 +143,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
   const aborters = new Map<string, AbortController>();
   const batchedInvalidations = new Set<string>();
 
-  // resolve paths from proxies or strings
-  const resolve = (p: string | Accessor<any>) => getStringPath(rawState, p);
   const historyMgr = new HistoryManager<T, D>(
     options?.customLimitsHistory?.() ?? [],
     resolve
@@ -309,6 +307,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
     enumerable: true,
     configurable: true,
   });
+  // resolve paths from proxies or strings
+  function resolve(p: string | Accessor<any>) {
+    return getStringPath(store.$, p);
+  }
+
   // notification: global subscribers filtered by cacheKeys
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {

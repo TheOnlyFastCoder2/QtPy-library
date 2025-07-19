@@ -32,7 +32,7 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
 
   if (!arrowMatch) {
     throw new Error(
-      "Неверные аргументы функции — ожидается `($) => ...`, `$ => ...` или `($, t) => ...`"
+      `\n ${fnString} \n Неверные аргументы функции — ожидается '($) => ...', '$ => ...' или '($, t) => ...'`
     );
   }
 
