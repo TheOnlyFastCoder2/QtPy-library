@@ -275,8 +275,8 @@ export type ExtractPathReturn<
   : P extends PathOrError<T, infer S, D>
   ? S extends string
     ? PathExtract<T, D, S>
-    : never
-  : never;
+    : any
+  : any;
 
 export type CacheKeys<
   T,
