@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/state-management-observable",
-  "version": "0.6.45",
+  "version": "0.6.46",
   "type": "module",
   "author": "QtPy",
   "license": "MIT",

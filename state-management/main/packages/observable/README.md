@@ -30,7 +30,7 @@
 
 5. [Батчинг (`store.batch`)](#батчинг-storebatch)
 
-6. [История изменений (undo/redo)](#история-изменений-undoredo)  
+6. [История (undo/redo)](#история-undoredo)  
    6.1. [`store.undo(pathOrAccessor)`](#storeundopathoraccessor)  
    6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)  
    6.3. [`store.clearHistoryPath(pathOrAccessor)`](#storeclearHistoryPathpathoraccessor)  
@@ -460,7 +460,18 @@ console.log('Будет следующий counter:', nextCounter);
 
 ---
 
-## История изменений (undo/redo)
+## История (undo/redo)
+
+И история изменений (undo/redo) не отслеживается автоматически для всех полей состояния. Чтобы активировать историю для конкретных свойств, необходимо явно указать их в параметре customLimitsHistory при создании хранилища.
+
+```ts
+const store = createObservableStore<AppState, DepthPath>(initialState, [], {
+  customLimitsHistory: [
+    ['user.age', 5], // [path, лимит]
+    [($) => $.items[0], 3], // [accessor, лимит]
+  ],
+});
+```
 
 - **Важно:** история не реагирует на косвенные изменения массивов через методы (например, `store.$.items.push(23)`), поэтому такие правки **не** попадают в стек `undo/redo`.
 
