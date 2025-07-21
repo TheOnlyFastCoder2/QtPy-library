@@ -22,7 +22,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   initialState: T,
   middlewares: Middleware<T, D>[] = [],
   options: {
-    customLimitsHistory?: (state: T) => PathLimitEntry<T, D>[];
+    customLimitsHistory?: PathLimitEntry<T, D>[];
   } = {}
 ): ReactStore<T, D> {
   const baseStore = createObservableStore<T, D>(
