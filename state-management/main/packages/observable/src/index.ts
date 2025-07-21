@@ -388,13 +388,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
-    const { skipHistory = false, keepQuiet } = options ?? {};
     let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
 
-    if (batching && !keepQuiet) {
+    if (batching && !options?.keepQuiet) {
       currentPending()!.set(path, newVal);
     } else {
-      doUpdate(path, newVal, skipHistory, keepQuiet);
+      doUpdate(path, newVal, false, options?.keepQuiet);
     }
   };
 
@@ -475,7 +474,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const prevValue = historyMgr.undo(path);
     if (prevValue !== undefined) {
-      store.update(path, prevValue, { skipHistory: true });
+      doUpdate(path, prevValue, true);
+      store.update(path, prevValue, { skipHistory: true, keepQuiet: true });
       return true;
     }
     console.warn(`No undo history for path: ${path}`);
@@ -486,7 +486,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const nextValue = historyMgr.redo(path);
     if (nextValue !== undefined) {
-      store.update(path, nextValue, { skipHistory: true });
+      doUpdate(path, nextValue, true);
+      store.update(path, nextValue, { skipHistory: true, keepQuiet: true });
       return true;
     }
     // No history to redo
@@ -610,37 +611,3 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   return store as ObservableStore<T, D>;
 }
-
-interface State {
-  counter: number;
-  lol: boolean;
-  items: number[];
-}
-
-const md: Middleware<State, 1> = (store, next) => (path, value) => {
-  console.log(store.resolvePath(path), store.resolveValue(path, value));
-  next(path, value);
-};
-
-const store = createObservableStore<State, 1>(
-  {
-    counter: 0,
-    lol: false,
-    items: [],
-  },
-  [md],
-  {
-    customLimitsHistory: [['counter', 20]],
-  }
-);
-
-store.$.counter = 23;
-store.update('counter', (c) => c + 3);
-store.update(
-  ($) => $.counter,
-  (c) => c + 3
-);
-store.undo('counter');
-store.undo('counter');
-store.undo('counter');
-store.undo('counter');
