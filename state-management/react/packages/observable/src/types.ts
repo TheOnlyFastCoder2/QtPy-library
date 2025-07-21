@@ -90,7 +90,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * const [count, userName] = store.useStore(["count", (s) => s.user.name]);
    */
   useStore<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
+    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
   >(
     paths: P,
     options?: { cacheKeys?: PathOrAccessor<T, D>[] }
@@ -110,7 +110,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * setName("Alice");
    * setName.quiet("Bob");
    */
-  useField<const P extends PathOrError<T, string, D> | Accessor<any>>(
+  useField<const P extends PathOrError<T, string, D> | Accessor<T>>(
     path: P,
     options?: { cacheKeys?: PathOrAccessor<T, D>[] }
   ): readonly [
@@ -131,7 +131,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * });
    */
   useEffect<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
+    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
   >(
     paths: P,
     effect: (values: useStoreReturn<T, P, D>) => void,
@@ -147,7 +147,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * store.reloadComponents(["user", "count"]);
    */
   reloadComponents<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
+    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
   >(
     cacheKeys: P
   ): void;
