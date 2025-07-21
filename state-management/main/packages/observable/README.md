@@ -32,7 +32,9 @@
 
 6. [История изменений (undo/redo)](#история-изменений-undoredo)  
    6.1. [`store.undo(pathOrAccessor)`](#storeundopathoraccessor)  
-   6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)
+   6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)  
+   6.3. [`store.clearHistoryPath(pathOrAccessor)`](#storeclearHistoryPathpathoraccessor)  
+   6.4. [`store.clearAllHistory()`](#storeclearAllHistory)
 
 7. [Статистика и очистка](#статистика-и-очистка)  
    7.1. [`store.getMemoryStats()`](#storegetmemorystats)  
@@ -383,27 +385,6 @@ console.log('Будет следующий counter:', nextCounter);
 
 ---
 
-### `store.clearHistoryPath(pathOrAccessor)`
-
-Этот метод для точечной очистки истории изменений (undo/redo stack) конкретного поля состояния. Он полностью удаляет все сохранённые промежуточные состояния для указанного пути, но не затрагивает само текущее значение в сторе. Полезно когда:
-
-- **Пример:**
-
-```ts
-store.clearHistoryPath('user.age'); // или
-store.clearHistoryPath(($) => $.user.age);
-```
-
-### `store.clearAllHistory()`
-
-Этот метод для полного сброса всей истории изменений во всём сторе. Удаляет все сохранённые состояния undo/redo для всех полей одновременно.
-
-- **Пример:**
-
-```ts
-store.clearAllHistory();
-```
-
 ## Асинхронные обновления
 
 ### `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
@@ -518,6 +499,27 @@ store.clearAllHistory();
   ```
 
 ---
+
+### `store.clearHistoryPath(pathOrAccessor)`
+
+Этот метод для точечной очистки истории изменений (undo/redo stack) конкретного поля состояния. Он полностью удаляет все сохранённые промежуточные состояния для указанного пути, но не затрагивает само текущее значение в сторе. Полезно когда:
+
+- **Пример:**
+
+```ts
+store.clearHistoryPath('user.age'); // или
+store.clearHistoryPath(($) => $.user.age);
+```
+
+### `store.clearAllHistory()`
+
+Этот метод для полного сброса всей истории изменений во всём сторе. Удаляет все сохранённые состояния undo/redo для всех полей одновременно.
+
+- **Пример:**
+
+```ts
+store.clearAllHistory();
+```
 
 ## Статистика и очистка
 
