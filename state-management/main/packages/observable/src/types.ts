@@ -9,10 +9,9 @@ export type MaxDepth = 0;
 /**a
  * Генерация строковых путей к значениям в массиве с поддержкой кортежей
  */
-type Range<
-  N extends number,
-  Acc extends number[] = []
-> = Acc["length"] extends N ? Acc[number] : Range<N, [...Acc, Acc["length"]]>;
+type Range<N extends number, Acc extends number[] = []> = Acc['length'] extends N
+  ? Acc[number]
+  : Range<N, [...Acc, Acc['length']]>;
 type NumberToString<N extends number> = `${N}`;
 export type LiteralIndices<N extends number = 1> = NumberToString<Range<N>>;
 
@@ -25,40 +24,40 @@ export type TupleUpTo<
   N extends number,
   R extends unknown[] = [],
   U = never
-> = R["length"] extends N ? U | R : TupleUpTo<T, N, [T, ...R], U | R>;
+> = R['length'] extends N ? U | R : TupleUpTo<T, N, [T, ...R], U | R>;
 
 /**
  * Утилита для извлечения типа элемента массива/кортежа
  */
 export type IsTuple<T> = T extends readonly any[]
-  ? number extends T["length"]
+  ? number extends T['length']
     ? false
     : true
   : false;
 
 export type ArrayPaths<T, Depth extends number> = Depth extends 0
-  ? TypeError<"Maximum depth exceeded in array path">
+  ? TypeError<'Maximum depth exceeded in array path'>
   : T extends readonly (infer U)[]
   ? IsTuple<T> extends true
     ? TupleArrayPaths<T, U, Depth>
     : RegularArrayPaths<U, Depth>
-  : TypeError<"ArrayPaths used on a non-array type">;
+  : TypeError<'ArrayPaths used on a non-array type'>;
 
 type TupleArrayPaths<T extends readonly any[], U, Depth extends number> =
-  | LiteralIndices<T["length"]>
+  | LiteralIndices<T['length']>
   | (Paths<U, Decrement<Depth>> extends infer Sub
       ? Sub extends string
-        ? `${LiteralIndices<T["length"]>}.${Sub}`
-        : TypeError<"Invalid subpath inside tuple array">
-      : TypeError<"Failed to infer subpaths from tuple array">);
+        ? `${LiteralIndices<T['length']>}.${Sub}`
+        : TypeError<'Invalid subpath inside tuple array'>
+      : TypeError<'Failed to infer subpaths from tuple array'>);
 
 type RegularArrayPaths<U, Depth extends number> =
   | LiteralIndices
   | (Paths<U, Decrement<Depth>> extends infer Sub
       ? Sub extends string
         ? `${LiteralIndices}.${Sub}`
-        : TypeError<"Invalid subpath inside regular array">
-      : TypeError<"Failed to infer subpaths from regular array">);
+        : TypeError<'Invalid subpath inside regular array'>
+      : TypeError<'Failed to infer subpaths from regular array'>);
 /**
  * Рекурсивная генерация строковых путей к полям объекта с улучшенной поддержкой массивов
  */
@@ -68,7 +67,7 @@ type IsTypeError<T> = T extends TypeError<any> ? true : false;
 type IfValid<T, Fallback = never> = IsTypeError<T> extends true ? Fallback : T;
 
 export type ObjectPaths<T, Depth extends number> = Depth extends 0
-  ? TypeError<"Maximum depth exceeded in object path">
+  ? TypeError<'Maximum depth exceeded in object path'>
   : {
       [K in keyof T & string]:
         | K
@@ -105,12 +104,12 @@ type TypeError<Message extends string> = {
   __error__: Message;
 };
 
-export type ValidUpdateValue<
+export type ValidUpdateValue<T, P extends string, D extends number> = ExtractPathType<
   T,
-  P extends string,
-  D extends number
-> = ExtractPathType<T, P, D> extends TypeError<any>
-  ? TypeError<"Invalid value type for this path">
+  P,
+  D
+> extends TypeError<any>
+  ? TypeError<'Invalid value type for this path'>
   : SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>;
 
 export type PathDepth<
@@ -118,9 +117,9 @@ export type PathDepth<
   Acc extends any[] = []
 > = P extends `${string}.${infer Rest}`
   ? PathDepth<Rest, [1, ...Acc]>
-  : Acc["length"] extends 0
+  : Acc['length'] extends 0
   ? 1
-  : Acc["length"];
+  : Acc['length'];
 
 export type PathTooDeep<
   P extends string,
@@ -151,12 +150,11 @@ export type PathOrError<T, P, D extends number> = D extends 0
 
 type IsPrimitive<T> = T extends Primitive ? true : false;
 
-export type AssertValueAssignable<
+export type AssertValueAssignable<T, P extends string, D extends number, V> = ExtractPathType<
   T,
-  P extends string,
-  D extends number,
-  V
-> = ExtractPathType<T, P, D> extends infer Extracted
+  P,
+  D
+> extends infer Extracted
   ? Extracted extends TypeError<any>
     ? Extracted
     : IsPrimitive<Extracted> extends true
@@ -171,12 +169,7 @@ export type AssertValueAssignable<
   : TypeError<`Failed to infer type for path "${P}"`>;
 
 // Тип safe-extract значения
-export type PathExtract<
-  T,
-  D extends number,
-  P extends string,
-  V = undefined
-> = D extends 0
+export type PathExtract<T, D extends number, P extends string, V = undefined> = D extends 0
   ? any // Заглушка: разрешаем любые пути
   : P extends SafePaths<T, D>
   ? V extends undefined
@@ -187,12 +180,8 @@ export type PathExtract<
  * Улучшенное извлечение типа по пути с поддержкой кортежей
  */
 
-export type ExtractPathType<
-  T,
-  P extends string,
-  Depth extends number
-> = Depth extends 0
-  ? TypeError<"Maximum depth exceeded">
+export type ExtractPathType<T, P extends string, Depth extends number> = Depth extends 0
+  ? TypeError<'Maximum depth exceeded'>
   : P extends `${infer K}.${infer Rest}`
   ? T extends readonly [...infer Elements] // Проверка на кортеж
     ? K extends keyof Elements
@@ -278,11 +267,7 @@ export type ExtractPathReturn<
     : any
   : any;
 
-export type CacheKeys<
-  T,
-  P extends readonly PathOrAccessor<T, D>[],
-  D extends number = MaxDepth
-> = {
+export type CacheKeys<T, P extends readonly PathOrAccessor<T, D>[], D extends number = MaxDepth> = {
   [K in keyof P]: P[K] extends Accessor<T, infer V>
     ? V
     : P[K] extends PathOrError<T, infer S, D>
@@ -292,9 +277,7 @@ export type CacheKeys<
     : never;
 };
 
-export type PathOrAccessor<T, D extends number> =
-  | PathOrError<T, string, D>
-  | Accessor<T, any>;
+export type PathOrAccessor<T, D extends number> = PathOrError<T, string, D> | Accessor<T, any>;
 
 /**
  * Колбэк для подписки на изменения.
@@ -313,10 +296,7 @@ export type Unsubscribe = () => void;
  */
 export interface UpdateFunction<T, D extends number = MaxDepth> {
   // строковый путь
-  <P extends string, V>(
-    path: PathOrError<T, P, D>,
-    value: PathExtract<T, D, P, V>
-  ): void;
+  <P extends string, V>(path: PathOrError<T, P, D>, value: PathExtract<T, D, P, V>): void;
 
   // accessor-функция
   <R>(path: Accessor<T, R>, value: R | ((prev: R) => R)): void;
@@ -365,10 +345,8 @@ export type MetaData = {
   [key: string]: any;
 };
 
-export type PathLimitEntry<T, D extends number> = [PathsEntry<T, D>, number];
-export type PathsEntry<T, D extends number> =
-  | FilteredPaths<T, D>
-  | Accessor<T, any>;
+export type PathLimitEntry<T, D extends number> = [PathOrAccessor<T, D>, number];
+
 /**
  * Интерфейс реактивного хранилища состояния.
  *
@@ -383,10 +361,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param callback - Колбэк, вызываемый при любом изменении состояния.
    * @param cacheKeys - Ключи кэша для фильтрации уведомлений (необязательно).
    */
-  subscribe(
-    callback: Subscriber<T>,
-    cacheKeys?: readonly PathOrAccessor<T, D>[]
-  ): Unsubscribe;
+  subscribe(callback: Subscriber<T>, cacheKeys?: readonly PathOrAccessor<T, D>[]): Unsubscribe;
 
   /**
    * Подписка на изменения по строковому пути.
@@ -408,9 +383,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param path - Accessor-функция или строка, представляющая путь в объекте состояния.
    * @returns Значение по указанному пути.
    */
-  get<const P extends PathOrAccessor<T, D>>(
-    path: P
-  ): ExtractPathReturn<T, P, D>;
+  get<const P extends PathOrAccessor<T, D>>(path: P): ExtractPathReturn<T, P, D>;
 
   update: {
     /**
@@ -464,10 +437,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param asyncUpdater - Функция, возвращающая промис нового значения.
    * @param options - Опции (например, отмена предыдущих).
    */
-  asyncUpdate<
-    const P extends PathOrAccessor<T, D>,
-    E = ExtractPathReturn<T, P, D>
-  >(
+  asyncUpdate<const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
     path: P,
     asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
     options?: { abortPrevious?: boolean }

@@ -116,10 +116,7 @@
 
 ```ts
 // ObservableStore.ts
-import {
-  createObservableStore,
-  Middleware,
-} from "@qtpy/state-management-observable";
+import { createObservableStore, Middleware } from '@qtpy/state-management-observable';
 // 1) Определяем начальный interface :
 interface StoreState {
   user: {
@@ -137,11 +134,11 @@ interface StoreState {
 // 2) Определяем начальный стейт:
 const initialState = {
   user: {
-    name: "Alice",
+    name: 'Alice',
     age: 30,
     settings: {
-      theme: "light",
-      locale: "ru",
+      theme: 'light',
+      locale: 'ru',
     },
   },
   items: [1, 2, 3],
@@ -152,15 +149,9 @@ type DepthPath = 14;
 // 3) Пример middleware: простой логгер перед и после update
 const loggerMiddleware: Middleware<StoreState, DepthPath> = (store, next) => {
   return (path, value) => {
-    console.log(
-      `[Logger] До обновления: путь="${path}", старое значение=`,
-      store.get(path)
-    );
+    console.log(`[Logger] До обновления: путь="${path}", старое значение=`, store.get(path));
     next(path, value);
-    console.log(
-      `[Logger] После обновления: путь="${path}", новое значение=`,
-      store.get(path)
-    );
+    console.log(`[Logger] После обновления: путь="${path}", новое значение=`, store.get(path));
   };
 };
 
@@ -169,11 +160,11 @@ export const store = createObservableStore<StoreState, DepthPath>(
   initialState,
   [loggerMiddleware], // цепочка middleware
   {
-    customLimitsHistory: ($) => [
+    customLimitsHistory: [
       // Для свойства counter сохраняем до 3 предыдущих состояний
-      ["counter", 3],
+      ['counter', 3],
       // Для locale — до 2 состояний
-      ["user.settings.locale", 2],
+      ['user.settings.locale', 2],
       // Для 4-го элемента массива items через аксцессор — до 3 состояний
       [($) => $.items[3], 3],
       // Для всего массива items — до 3 состояний
@@ -202,14 +193,13 @@ export const store = createObservableStore<StoreState, DepthPath>(
   ```ts
   // Подписываемся на все апдейты:
   const unsubAll = store.subscribe((fullState) => {
-    console.log("Весь стейт изменился:", fullState);
+    console.log('Весь стейт изменился:', fullState);
   });
 
   // Подписка, опирающаяся на cacheKey "user.settings.theme":
   const unsubFiltered = store.subscribe(
-    (fullState) =>
-      console.log("Тема пользователя:", fullState.user.settings.theme),
-    ["user.settings.theme"]
+    (fullState) => console.log('Тема пользователя:', fullState.user.settings.theme),
+    ['user.settings.theme']
   );
 
   // Отписка:
@@ -236,8 +226,8 @@ subscribeToPath позволяет подписаться на изменени�
   ```ts
   // 1) Подписка на изменение user.name по строковому пути:
   const unsubName = store.subscribeToPath(
-    "user.name",
-    (newName) => console.log("Имя пользователя:", newName),
+    'user.name',
+    (newName) => console.log('Имя пользователя:', newName),
     { immediate: true }
   );
 
@@ -246,8 +236,8 @@ subscribeToPath позволяет подписаться на изменени�
   let idx = 0;
   const unsubFirstItem = store.subscribeToPath(
     ($, t) => $.items[t(idx)], // Accessor<any>
-    (val) => console.log("Первый элемент массива:", val),
-    { cacheKeys: ["counter"] }
+    (val) => console.log('Первый элемент массива:', val),
+    { cacheKeys: ['counter'] }
   );
 
   // 3) Отписка:
@@ -265,7 +255,7 @@ subscribeToPath позволяет подписаться на изменени�
 
   ```ts
   // Если где-то в логике нужно форсировать оповещение по подписчикам, полагающимся на cacheKey:
-  store.invalidate("user.settings.theme");
+  store.invalidate('user.settings.theme');
   ```
 
 ---
@@ -277,13 +267,13 @@ subscribeToPath позволяет подписаться на изменени�
 - **Пример:**
 
   ```ts
-  const age = store.get("user.age"); // 30
-  console.log("Возраст:", age);
+  const age = store.get('user.age'); // 30
+  console.log('Возраст:', age);
 
   // Пример с Accessor: читаем элемент массива по динамическому индексу
   let idx = 1;
   const firstItem = store.get(($, t) => $.items[t(idx)]);
-  console.log("Второй элемент массива:", firstItem); // 2
+  console.log('Второй элемент массива:', firstItem); // 2
   ```
 
 ---
@@ -330,7 +320,7 @@ subscribeToPath позволяет подписаться на изменени�
 ```ts
 store.$.items.push(100); // вызовет уведомление
 store.$.items.splice(1, 2); // → нотификация по "items"
-store.$.user.name = "Charlie"; // → нотификация по "user.name"
+store.$.user.name = 'Charlie'; // → нотификация по "user.name"
 ```
 
 ---
@@ -340,20 +330,20 @@ store.$.user.name = "Charlie"; // → нотификация по "user.name"
 1. **По строковому пути**:
 
 ```ts
-store.update("user.age", 35);
+store.update('user.age', 35);
 ```
 
 2. **Через функцию**:
 
 ```ts
-store.update("user.age", (cur) => cur + 1);
+store.update('user.age', (cur) => cur + 1);
 ```
 
 3. **С `keepQuiet`** — чтобы не уведомлять подписчиков:
 
 ```ts
-store.update("user.age", 36, { keepQuiet: true });
-store.update.quiet("user.age", 36);
+store.update('user.age', 36, { keepQuiet: true });
+store.update.quiet('user.age', 36);
 ```
 
 4. **Через Accessor с динамикой**:
@@ -369,10 +359,10 @@ store.update(
 5. **Массив и сравнение snapshot**:
 
 ```ts
-store.update("items", (prev) => {
+store.update('items', (prev) => {
   return prev.reverse(); // вызовет уведомление
 });
-store.update("items", (prev) => {
+store.update('items', (prev) => {
   return prev; // не вызовет — snapshot не изменился
 });
 ```
@@ -386,8 +376,8 @@ store.update("items", (prev) => {
 - **Пример:**
 
 ```ts
-const nextCounter = store.resolveValue("counter", (cur) => cur + 5);
-console.log("Будет следующий counter:", nextCounter);
+const nextCounter = store.resolveValue('counter', (cur) => cur + 5);
+console.log('Будет следующий counter:', nextCounter);
 // Но store.get("counter") остаётся прежним.
 ```
 
@@ -406,9 +396,9 @@ console.log("Будет следующий counter:", nextCounter);
   ```ts
   // Загрузим список с сервера и запишем в $.items:
   await store.asyncUpdate(
-    "items",
+    'items',
     async (currentItems, signal) => {
-      const response = await fetch("/api/items", { signal });
+      const response = await fetch('/api/items', { signal });
       const data = await response.json();
       return data.list;
     },
@@ -429,7 +419,7 @@ console.log("Будет следующий counter:", nextCounter);
   store.cancelAsyncUpdates();
 
   // Отменить только для пути "items":
-  store.cancelAsyncUpdates("items");
+  store.cancelAsyncUpdates('items');
   ```
 
 ---
@@ -445,10 +435,10 @@ console.log("Будет следующий counter:", nextCounter);
   ```ts
   // 1) Через метод update:
   await store.batch(() => {
-    store.update("user.name", "Charlie");
-    store.update("user.age", (cur) => cur + 2);
-    store.update("items.0", 100);
-    store.update("items.0", 200); // два изменения одного пути
+    store.update('user.name', 'Charlie');
+    store.update('user.age', (cur) => cur + 2);
+    store.update('items.0', 100);
+    store.update('items.0', 200); // два изменения одного пути
   });
   // Подписчики получат одно уведомление:
   // - user.name = "Charlie"
@@ -457,7 +447,7 @@ console.log("Будет следующий counter:", nextCounter);
 
   // 2) С прямыми присваиваниями:
   await store.batch(() => {
-    store.$.user.name = "Charlie";
+    store.$.user.name = 'Charlie';
     store.$.user.age = 23;
     store.$.items[0] = 100;
     store.$.items[0] = 200; // два присваивания
@@ -481,12 +471,12 @@ console.log("Будет следующий counter:", nextCounter);
 - **Пример:**
 
   ```ts
-  store.update("counter", 10);
-  store.update("counter", 20);
+  store.update('counter', 10);
+  store.update('counter', 20);
 
-  console.log(store.get("counter")); // 20
-  store.undo("counter");
-  console.log(store.get("counter")); // 10
+  console.log(store.get('counter')); // 20
+  store.undo('counter');
+  console.log(store.get('counter')); // 10
   ```
 
 ---
@@ -501,9 +491,9 @@ console.log("Будет следующий counter:", nextCounter);
 
   ```ts
   // Продолжение предыдущего примера:
-  store.undo("counter"); // возвращает к 10
-  store.redo("counter");
-  console.log(store.get("counter")); // 20
+  store.undo('counter'); // возвращает к 10
+  store.redo('counter');
+  console.log(store.get('counter')); // 20
   ```
 
 ---
@@ -523,9 +513,9 @@ console.log("Будет следующий counter:", nextCounter);
 
   ```ts
   const stats = store.getMemoryStats();
-  console.log("Глобальных подписчиков:", stats.subscribersCount);
-  console.log("Подписок по путям:", stats.pathSubscribersCount);
-  console.log("История:", stats.historyEntries);
+  console.log('Глобальных подписчиков:', stats.subscribersCount);
+  console.log('Подписок по путям:', stats.pathSubscribersCount);
+  console.log('История:', stats.historyEntries);
   ```
 
 ---
@@ -562,12 +552,12 @@ console.log("Будет следующий counter:", nextCounter);
 
 ```ts
 // Гарантированная активация middleware:
-store.update("user.name", "Dmitry");
-store.$.user.name = "Dmitry"; // Proxy перехватывает и идёт через middleware
+store.update('user.name', 'Dmitry');
+store.$.user.name = 'Dmitry'; // Proxy перехватывает и идёт через middleware
 
 // НЕ активирует middleware (не рекомендуется):
 // (внутренний «сырый» объект здесь не трогает Proxy)
-(store as any).rawState.user.name = "Eve";
+(store as any).rawState.user.name = 'Eve';
 ```
 
 ---
@@ -579,7 +569,7 @@ store.$.user.name = "Dmitry"; // Proxy перехватывает и идёт ч
 ```ts
 const clampAgeMiddleware: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    if (path === "user.age") {
+    if (path === 'user.age') {
       // Ограничиваем возраст от 0 до 99:
       const clamped = Math.max(0, Math.min(99, value as number));
       next(path, clamped);
@@ -601,8 +591,8 @@ const clampAgeMiddleware: Middleware<typeof initialState> = (store, next) => {
 ```ts
 const blockAgeMiddleware: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    if (path === "user.age") {
-      console.warn("[Middleware] Изменение user.age заблокировано");
+    if (path === 'user.age') {
+      console.warn('[Middleware] Изменение user.age заблокировано');
       // Не вызываем next → изменение не произойдёт
       return;
     }
@@ -611,11 +601,11 @@ const blockAgeMiddleware: Middleware<typeof initialState> = (store, next) => {
 };
 
 // Пробуем:
-store.update("user.age", 40);
+store.update('user.age', 40);
 // Лог: [Middleware] Изменение user.age заблокировано
 // Возраст остаётся прежним
 
-store.update("user.name", "Bob");
+store.update('user.name', 'Bob');
 // Проходит нормально, потому что для "user.name" вызывается next.
 ```
 
@@ -634,17 +624,17 @@ store.update("user.name", "Bob");
 ```ts
 const mw1: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    console.log("[MW1] До", path, value);
+    console.log('[MW1] До', path, value);
     next(path, value);
-    console.log("[MW1] После", path, store.get(path));
+    console.log('[MW1] После', path, store.get(path));
   };
 };
 
 const mw2: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    console.log("[MW2] Проверяем", path);
-    if (path === "items.0") {
-      console.log("[MW2] Блокируем изменение items.0");
+    console.log('[MW2] Проверяем', path);
+    if (path === 'items.0') {
+      console.log('[MW2] Блокируем изменение items.0');
       return; // mw3 и ядро не выполнятся
     }
     next(path, value);
@@ -653,7 +643,7 @@ const mw2: Middleware<typeof initialState> = (store, next) => {
 
 const mw3: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    console.log("[MW3] Логика MW3");
+    console.log('[MW3] Логика MW3');
     next(path, value);
   };
 };
@@ -661,14 +651,14 @@ const mw3: Middleware<typeof initialState> = (store, next) => {
 const store = createObservableStore(initialState, [mw1, mw2, mw3]);
 
 // Пример:
-store.update("items.0", 999);
+store.update('items.0', 999);
 // Лог:
 // [MW1] До items.0 999
 // [MW2] Проверяем items.0
 // [MW2] Блокируем изменение items.0
 // → mw1 не продолжит после next, mw3 не вызовется, update не применится.
 
-store.update("user.name", "Dmitry");
+store.update('user.name', 'Dmitry');
 // Лог:
 // [MW1] До user.name Dmitry
 // [MW2] Проверяем user.name
@@ -764,7 +754,7 @@ export type Accessor<T, R = any> = ($: T, t: <K>(arg: K) => K) => R;
 - Вместо этого `store` вызывает `toString()` на `Accessor`, и получает строку вроде:
 
   ```ts
-  "items.5";
+  'items.5';
   ```
 
 - Это делается через **анализ тела функции и регулярки**:
@@ -786,7 +776,7 @@ store.update(($, t) => $.items[t(index)], 999);
 ```
 
 ```ts
-store.get(($, t) => $.user.settings[t("locale")]);
+store.get(($, t) => $.user.settings[t('locale')]);
 // Аналогично: store.get("user.settings.locale")
 ```
 
@@ -794,7 +784,7 @@ store.get(($, t) => $.user.settings[t("locale")]);
 store.subscribeToPath(
   ($, t) => $.items[t(dynamicIndex)],
   (val) => {
-    console.log("Изменился элемент массива:", val);
+    console.log('Изменился элемент массива:', val);
   }
 );
 ```
@@ -842,7 +832,7 @@ interface StoreState {
   items: number[];
   counter: number;
   cacheKeys?: {
-    "lol.items": number[]; // <- виртуальный путь
+    'lol.items': number[]; // <- виртуальный путь
   };
 }
 
@@ -857,7 +847,7 @@ export const store = createObservableStore<StoreState>(initialState, []);
 Теперь можно использовать путь `"cacheKeys.lol.items.0"` в методах:
 
 ```ts
-store.invalidate("cacheKeys.lol.items.0");
+store.invalidate('cacheKeys.lol.items.0');
 ```
 
 > ☝️ Это путь не к реальным данным, а к **виртуальному представлению**, которое вы определили в `cacheKeys`.
@@ -885,8 +875,8 @@ store.invalidate("cacheKeys.lol.items.0");
 ### Пример с подпиской
 
 ```ts
-store.subscribeToPath("cacheKeys.lol.items.2", (val) => {
-  console.log("Элемент lol.items[2] изменился:", val);
+store.subscribeToPath('cacheKeys.lol.items.2', (val) => {
+  console.log('Элемент lol.items[2] изменился:', val);
 });
 ```
 
@@ -895,13 +885,13 @@ store.subscribeToPath("cacheKeys.lol.items.2", (val) => {
 ### Зачем использовать `cacheKeys`, если можно напрямую
 
 ```ts
-store.invalidate("lol.items.0"); // ❌ Может не существовать или не иметь автодополнения
+store.invalidate('lol.items.0'); // ❌ Может не существовать или не иметь автодополнения
 ```
 
 **Вместо:**
 
 ```ts
-store.invalidate("cacheKeys.lol.items.0");
+store.invalidate('cacheKeys.lol.items.0');
 ```
 
 `cacheKeys` позволяет:
@@ -920,7 +910,7 @@ store.invalidate("cacheKeys.lol.items.0");
 
 ```ts
 const idx = 1;
-store.invalidate((t) => store.$["cacheKeys"].lol.items[t(idx)]);
+store.invalidate((t) => store.$['cacheKeys'].lol.items[t(idx)]);
 ```
 
 ---

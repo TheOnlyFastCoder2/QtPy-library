@@ -8,7 +8,7 @@ import {
   Accessor,
   MetaData,
   PathLimitEntry,
-} from "./types";
+} from './types';
 import {
   normalizeCacheKey,
   shallowEqual,
@@ -20,7 +20,7 @@ import {
   setMetaData,
   withMetaSupport,
   calculateSnapshotHash,
-} from "./utils";
+} from './utils';
 
 // --- Helpers & Managers ---
 class HistoryManager<T extends object, D extends number = 0> {
@@ -34,6 +34,7 @@ class HistoryManager<T extends object, D extends number = 0> {
   ) {
     this.perPathMaxLength = new Map();
     for (const [key, max] of pathLimits) {
+      //@ts-expect-error
       const path = resolvePath(key);
       this.perPathMaxLength.set(path, max as any);
     }
@@ -125,14 +126,14 @@ export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[] = [],
   options: {
-    customLimitsHistory?: () => PathLimitEntry<T, D>[];
+    customLimitsHistory?: PathLimitEntry<T, D>[];
   } = {}
 ): ObservableStore<T, D> {
   let rawState: T = { ...initialState };
 
   // === Batching infrastructure ===
   let batching = false;
-  let modeBatching: "proxy" | "user" = "user";
+  let modeBatching: 'proxy' | 'user' = 'user';
   let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let currentSubscriberMeta: SubscriptionMeta | null = null;
 
@@ -142,11 +143,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
   const aborters = new Map<string, AbortController>();
   const batchedInvalidations = new Set<string>();
-
-  const historyMgr = new HistoryManager<T, D>(
-    options?.customLimitsHistory?.() ?? [],
-    resolve
-  );
 
   const currentPending = () => pendingStack[pendingStack.length - 1];
 
@@ -174,15 +170,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   let currentArrayMethod: { name: string } | null = null;
 
-  function createReactiveProxy<T extends object>(
-    target: T,
-    parentFullPath: string = ""
-  ): T {
-    if (typeof target !== "object" || target === null) return target;
+  function createReactiveProxy<T extends object>(target: T, parentFullPath: string = ''): T {
+    if (typeof target !== 'object' || target === null) return target;
 
     const proxy = new Proxy(target, {
       get(target, prop, receiver) {
-        const key = typeof prop === "string" ? prop : String(prop);
+        const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         // Трекинг зависимостей
@@ -191,15 +184,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
         const rawValue = Reflect.get(target, prop, receiver);
 
         // 🎯 Перехват мутирующих методов массива
-        if (
-          Array.isArray(target) &&
-          typeof rawValue === "function" &&
-          isArrayMethod(key)
-        ) {
+        if (Array.isArray(target) && typeof rawValue === 'function' && isArrayMethod(key)) {
           return (...args: any[]) => {
             currentArrayMethod = { name: key };
             let result: any;
-            modeBatching = "proxy";
+            modeBatching = 'proxy';
             store.batch(() => {
               result = rawValue.apply(receiver, args);
             });
@@ -219,7 +208,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         if (rawValue === target) return receiver;
 
         // Рекурсивная проксимация вложенных объектов
-        if (rawValue !== null && typeof rawValue === "object") {
+        if (rawValue !== null && typeof rawValue === 'object') {
           return createReactiveProxy(rawValue, fullPath);
         }
 
@@ -227,7 +216,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       },
 
       set(target, prop, value, receiver) {
-        const key = typeof prop === "string" ? prop : String(prop);
+        const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         const oldValue = Reflect.get(target, prop, receiver);
@@ -248,7 +237,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       },
 
       deleteProperty(target, prop) {
-        const key = typeof prop === "string" ? prop : String(prop);
+        const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         const success = Reflect.deleteProperty(target, prop);
@@ -258,7 +247,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
       ownKeys(target) {
         if (currentSubscriberMeta) {
-          const prefix = parentFullPath ? `${parentFullPath}.` : "";
+          const prefix = parentFullPath ? `${parentFullPath}.` : '';
           for (const key of Reflect.ownKeys(target)) {
             currentSubscriberMeta.trackedPaths.add(`${prefix}${String(key)}`);
           }
@@ -269,11 +258,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     return proxy;
   }
-  function shouldSkipValueUpdate(
-    oldVal: any,
-    newVal: any,
-    metaMap: WeakMap<object, MetaData>
-  ) {
+  function shouldSkipValueUpdate(oldVal: any, newVal: any, metaMap: WeakMap<object, MetaData>) {
     let skipUpdate = false;
 
     const isSupported = withMetaSupport(newVal, () => {
@@ -301,16 +286,15 @@ export function createObservableStore<T extends object, D extends number = 0>(
   // placeholder for store
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
-
-  Object.defineProperty(store, "$", {
+  Object.defineProperty(store, '$', {
     get: () => stateProxy as T,
     enumerable: true,
     configurable: true,
   });
+
   // resolve paths from proxies or strings
-  function resolve(p: string | Accessor<any>) {
-    return getStringPath(store.$, p);
-  }
+  const resolve = (p: string | Accessor<any>) => getStringPath(store?.$, p);
+  const historyMgr = new HistoryManager<T, D>(options?.customLimitsHistory ?? [], resolve);
 
   // notification: global subscribers filtered by cacheKeys
   function notifyInvalidate(normalizedKey: string) {
@@ -338,12 +322,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   // core update logic
-  const doUpdate = (
-    path: string,
-    newVal: any,
-    skipHistory = false,
-    keepQuiet = false
-  ) => {
+  const doUpdate = (path: string, newVal: any, skipHistory = false, keepQuiet = false) => {
     const oldVal = getRaw(path);
     const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
     if (isSkipUpdate.bool) return;
@@ -370,7 +349,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const isSkipUpdate = shouldSkipValueUpdate(oldVal, value, metaMap);
       if (isSkipUpdate.bool) continue;
 
-      if (modeBatching === "user") {
+      if (modeBatching === 'user') {
         historyMgr.push(path, oldVal);
       }
 
@@ -388,7 +367,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(pathOrAccessor);
     const old = getRaw(path);
 
-    const newVal = typeof valueOrFn === "function" ? valueOrFn(old) : valueOrFn;
+    const newVal = typeof valueOrFn === 'function' ? valueOrFn(old) : valueOrFn;
 
     withMetaSupport(newVal, () => {
       const snapshot = calculateSnapshotHash(old);
@@ -434,7 +413,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
     const ctrl = new AbortController();
     ctrl.signal.addEventListener(
-      "abort",
+      'abort',
       () => {
         aborters.delete(pathStr);
       },
@@ -450,7 +429,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         store.update(pathStr, newValue);
       }
     } catch (e) {
-      if ((e as any).name !== "AbortError") {
+      if ((e as any).name !== 'AbortError') {
         console.error(e);
       }
     } finally {
@@ -477,7 +456,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         // top-level batch: commit all changes
         commit(myPending);
         batching = false;
-        modeBatching = "user";
+        modeBatching = 'user';
         for (const path of batchedInvalidations) {
           store.invalidate(path);
         }
@@ -554,8 +533,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const meta: SubscriptionMeta = {
       active: true,
       trackedPaths: new Set(allPaths),
-      cacheKeys:
-        normalizedKeys.length > 0 ? new Set(normalizedKeys) : undefined,
+      cacheKeys: normalizedKeys.length > 0 ? new Set(normalizedKeys) : undefined,
     };
     (wrap as any).__meta = meta;
 

@@ -56,7 +56,7 @@ const initialState: AppState = {
 };
 type DepthPath = 2;
 const store = createObservableStore<AppState, DepthPath>(initialState, [], {
-  customLimitsHistory: () => [
+  customLimitsHistory: [
     ["user.age", 5],
     [($, t) => $.items[t(1)], 3],
   ],
@@ -131,9 +131,9 @@ store.update("items", (prev) => prev); // → изменений нет → ув
 import { createReactStore } from "@qtpy/state-management-react";
 
 const userStore = createReactStore(initialState, [], {
-  customLimitsHistory: ($) => [
+  customLimitsHistory: [
     ["user.age", 5],
-    [(t) => $.items[t(1)], 3],
+    [($, t) => $.items[t(1)], 3],
   ],
 });
 ```
