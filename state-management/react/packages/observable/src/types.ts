@@ -13,10 +13,10 @@ import {
  */
 export type useStoreReturn<
   T,
-  P extends readonly (PathOrError<T, string, D> | Accessor<any>)[],
+  P extends readonly PathOrAccessor<T, D>[],
   D extends number = MaxDepth
 > = {
-  [K in keyof P]: P[K] extends Accessor<infer V>
+  [K in keyof P]: P[K] extends Accessor<T, infer V>
     ? V
     : P[K] extends PathOrError<T, infer S, D>
     ? S extends string
@@ -89,9 +89,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * @example
    * const [count, userName] = store.useStore(["count", (s) => s.user.name]);
    */
-  useStore<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
-  >(
+  useStore<const P extends readonly PathOrAccessor<T, D>[]>(
     paths: P,
     options?: { cacheKeys?: PathOrAccessor<T, D>[] }
   ): useStoreReturn<T, P, D>;
