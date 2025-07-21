@@ -294,13 +294,10 @@ export type Unsubscribe = () => void;
  * Сигнатура функции обновления хранилища.
  * Принимает путь (строка или Accessor) и новое значение.
  */
-export interface UpdateFunction<T, D extends number = MaxDepth> {
-  // строковый путь
-  <P extends string, V>(path: PathOrError<T, P, D>, value: PathExtract<T, D, P, V>): void;
-
-  // accessor-функция
-  <R>(path: Accessor<T, R>, value: R | ((prev: R) => R)): void;
-}
+export type UpdateFunction<T, D extends number = MaxDepth> = <const P extends PathOrAccessor<T, D>>(
+  path: P,
+  value: ExtractPathReturn<T, P, D>
+) => void;
 
 /**
  * Интерфейс middleware (промежуточной обёртки) для update-функции.
@@ -428,7 +425,11 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
     path: P,
     valueOrFn: ValueOrFn<P>
   ): ExtractPathReturn<T, P, D>;
-
+  /**
+   * Преобразует путь или Accessor-функцию в строковый путь для работы с хранилищем.
+   * @param path -  Accessor-функция или путь к значению.
+   */
+  resolvePath<const P extends PathOrAccessor<T, D>>(path: P): string;
   /**
    * Отменить все отложенные (асинхронные) обновления.
    */
