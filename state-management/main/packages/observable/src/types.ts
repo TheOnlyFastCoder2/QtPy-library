@@ -357,6 +357,15 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
   readonly $: T;
 
   /**
+   * Очищает историю изменений (undo/redo) для указанного пути в состоянии.
+   * @param {P} pathOrAccessor - Accessor-функция или строка - указывающая на свойство, историю которого нужно очистить.
+   */
+  clearHistoryPath<const P extends PathOrAccessor<T, D>>(pathOrAccessor: P): void;
+  /**
+   * Полностью очищает всю историю изменений (undo/redo) для всех путей в состоянии.
+   */
+  clearAllHistory(): void;
+  /**
    * Подписка на изменения состояния (глобально).
    * @param callback - Колбэк, вызываемый при любом изменении состояния.
    * @param cacheKeys - Ключи кэша для фильтрации уведомлений (необязательно).
@@ -365,7 +374,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
 
   /**
    * Подписка на изменения по строковому пути.
-   * @param path - Строка, указывающая на путь в состоянии.
+   * @param path - Accessor-функция или строка.
    * @param callback - Колбэк, вызываемый при изменении значения по этому пути.
    * @param options - Опции подписки (immediate вызов, cacheKeys).
    */

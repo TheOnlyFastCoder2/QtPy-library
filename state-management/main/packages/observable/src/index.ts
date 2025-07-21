@@ -134,7 +134,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
   // === Batching infrastructure ===
   let batching = false;
   let modeBatching: 'proxy' | 'user' = 'user';
-  let cleanupTimer: ReturnType<typeof setInterval> | null = null;
   let currentSubscriberMeta: SubscriptionMeta | null = null;
 
   const metaMap = new WeakMap<object, MetaData>();
@@ -316,10 +315,15 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
   }
 
-  function performCleanup() {
+  store.clearHistoryPath = (pathOrAccessor) => {
+    const mainPath = resolve(pathOrAccessor);
+    historyMgr.clear(mainPath);
+  };
+
+  store.clearAllHistory = () => {
     const used = new Set<string>(pathSubscribers.keys());
     historyMgr.pruneUnused(used);
-  }
+  };
 
   // core update logic
   const doUpdate = (path: string, newVal: any, skipHistory = false, keepQuiet = false) => {
@@ -506,7 +510,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
     return () => {
       meta.active = false;
       subscribers.delete(wrap);
-      performCleanup();
     };
   };
 
@@ -552,7 +555,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
       allPaths.forEach((p) => {
         pathSubscribers.get(p)?.delete(wrap);
       });
-      historyMgr.clear(mainPath);
     };
   };
 
@@ -581,10 +583,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     subscribers.clear();
     pathSubscribers.clear();
     aborters.clear();
-    if (cleanupTimer !== null) {
-      clearInterval(cleanupTimer);
-      cleanupTimer = null;
-    }
+    store.clearAllHistory();
   };
 
   store.get = (p) => {
