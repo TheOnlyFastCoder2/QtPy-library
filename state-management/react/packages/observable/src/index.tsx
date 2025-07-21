@@ -10,7 +10,7 @@ import type {
 } from "@qtpy/state-management-observable/types";
 import type { ReactStore, useStoreReturn } from "./types";
 
-export { createObservableStore };
+export { createObservableStore, Middleware };
 
 /**
  * Создаёт ObservableStore и оборачивает его React-хуками

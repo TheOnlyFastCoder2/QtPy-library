@@ -22,7 +22,8 @@
    3.3. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
    3.4. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
    3.5. [`store.update(pathOrAccessor, valueOrFn, options)`](#storeupdatepathoraccessor-valueorfn-options)  
-   3.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn) 3.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)
+   3.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)  
+   3.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)
 
 4. [Асинхронные обновления](#асинхронные-обновления)  
    4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
@@ -375,6 +376,8 @@ store.update('items', (prev) => {
 
 `resolvePath` преобразует путь к данным (строку вида `'a.b'` или функцию `$ => $.a.b`) в строковый формат для внутреннего использования в хранилище. Гарантирует валидность пути и соответствие глубине вложенности.
 
+**Может пригодиться в Middleware**
+
 - **Пример:**
 
 ```ts
@@ -387,6 +390,8 @@ store.resolvePath(($) => $.profile.age); // → 'profile.age'
 ### `store.resolveValue(pathOrAccessor, valueOrFn)`
 
 Этот метод для безопасного "предпросмотра" обновления состояния. Он рассчитывает, каким будет итоговое значение после применения функции или прямого значения, не меняя данные в сторе. Это удобно, когда нужно сделать условную проверку, провести валидацию, сравнить с текущим значением или подготовить сложную логику обновления, не рискуя триггерить подписки или ререндеры.
+
+**Может пригодиться в Middleware**
 
 - **Пример:**
 
@@ -616,9 +621,10 @@ store.$.user.name = 'Dmitry'; // Proxy перехватывает и идёт ч
 ```ts
 const clampAgeMiddleware: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
+    const resVal = store.resolveValue(path, value);
     if (path === 'user.age') {
       // Ограничиваем возраст от 0 до 99:
-      const clamped = Math.max(0, Math.min(99, value as number));
+      const clamped = Math.max(0, Math.min(99, resVal));
       next(path, clamped);
     } else {
       next(path, value);
@@ -671,16 +677,21 @@ store.update('user.name', 'Bob');
 ```ts
 const mw1: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
-    console.log('[MW1] До', path, value);
+    const resVal = store.resolveValue(path, value);
+    const resPath = store.resolvePath(path);
+
+    console.log('[MW1] До', path, resPath, resVal);
     next(path, value);
-    console.log('[MW1] После', path, store.get(path));
+    console.log('[MW1] После', path, store.get(path), resPath);
   };
 };
 
 const mw2: Middleware<typeof initialState> = (store, next) => {
   return (path, value) => {
+    const resPath = store.resolvePath(path);
+
     console.log('[MW2] Проверяем', path);
-    if (path === 'items.0') {
+    if (resPath === 'items.0') {
       console.log('[MW2] Блокируем изменение items.0');
       return; // mw3 и ядро не выполнятся
     }

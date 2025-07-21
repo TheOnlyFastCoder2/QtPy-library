@@ -388,12 +388,13 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
+    const { skipHistory = false, keepQuiet } = options ?? {};
     let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
 
-    if (batching && !options?.keepQuiet) {
+    if (batching && !keepQuiet) {
       currentPending()!.set(path, newVal);
     } else {
-      doUpdate(path, newVal, false, options?.keepQuiet);
+      doUpdate(path, newVal, skipHistory, keepQuiet);
     }
   };
 
@@ -474,7 +475,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const prevValue = historyMgr.undo(path);
     if (prevValue !== undefined) {
-      doUpdate(path, prevValue, true);
+      store.update(path, prevValue, { skipHistory: true });
       return true;
     }
     console.warn(`No undo history for path: ${path}`);
@@ -485,7 +486,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const path = resolve(p);
     const nextValue = historyMgr.redo(path);
     if (nextValue !== undefined) {
-      doUpdate(path, nextValue, true);
+      store.update(path, nextValue, { skipHistory: true });
       return true;
     }
     // No history to redo
@@ -609,3 +610,37 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   return store as ObservableStore<T, D>;
 }
+
+interface State {
+  counter: number;
+  lol: boolean;
+  items: number[];
+}
+
+const md: Middleware<State, 1> = (store, next) => (path, value) => {
+  console.log(store.resolvePath(path), store.resolveValue(path, value));
+  next(path, value);
+};
+
+const store = createObservableStore<State, 1>(
+  {
+    counter: 0,
+    lol: false,
+    items: [],
+  },
+  [md],
+  {
+    customLimitsHistory: [['counter', 20]],
+  }
+);
+
+store.$.counter = 23;
+store.update('counter', (c) => c + 3);
+store.update(
+  ($) => $.counter,
+  (c) => c + 3
+);
+store.undo('counter');
+store.undo('counter');
+store.undo('counter');
+store.undo('counter');
