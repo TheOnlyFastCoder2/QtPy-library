@@ -1,0 +1,58 @@
+{
+  "name": "@qtpy/use-popup",
+  "version": "0.1.3",
+  "author": "QtPy",
+  "license": "MIT",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/tree/main/usePopup",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "private": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts"
+    },
+    "./styles.css": "./dist/styles.css"
+  },
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "react",
+    "popup",
+    "hooks",
+    "modal",
+    "ui"
+  ],
+  "dependencies": {
+    "react": ">=18.0",
+    "react-dom": ">=18.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && tsc --declaration --emitDeclarationOnly --outDir dist",
+    "prepublishOnly": "npm run build",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src --ext ts,tsx --fix"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.30.1",
+    "@types/node": "^24.1.0",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.6.0",
+    "eslint": "^9.30.1",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.20",
+    "globals": "^16.3.0",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.35.1",
+    "vite": "^7.0.4",
+    "vite-plugin-dts": "^4.5.4"
+  }
+}

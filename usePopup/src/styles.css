@@ -1,0 +1,41 @@
+@starting-style {
+  .Popup::before {
+    opacity: 0;
+  }
+}
+
+.Popup {
+  position: fixed;
+  max-width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  inset: 0;
+
+  &.onCloseBG {
+    cursor: pointer;
+  }
+
+  .Popup_container {
+    display: flex;
+    height: 100%;
+
+    &>* {
+      cursor: default;
+    }
+  }
+
+  &.__remove::before {
+    opacity: 0;
+  }
+
+  &::before {
+    content: '';
+    position: absolute;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0);
+    z-index: -1;
+    opacity: 0.8;
+  }
+}
