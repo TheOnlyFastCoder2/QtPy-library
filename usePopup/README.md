@@ -4,16 +4,16 @@
 
 ## Содержание
 
-1. Общее описание
+1. Общее описание  
    1.1. [Аргументы хука](#11-аргументы-хука)  
    1.2. [Возвращаемые значения](#12-возвращаемые-значения)  
    1.3. [Свойства компонента `<Popup />`](#13-свойства-компонента-popup-)  
 
-2. Примеры использования   
+2. Примеры использования    
    2.1. [Базовый пример](#21-базовый-пример)  
    2.2. [Стилизация и анимация](#22-стилизация-и-анимация)    
 
-3. [`useSimplePopup` — обёртка над `usePopup`](#3-usesimplepopup--обёртка-над-usepopup)  
+3. `useSimplePopup` — обёртка над `usePopup`  
    3.1. [Назначение](#31-назначение)  
    3.2. [Пример реализации](#32-пример-реализации)  
    3.3. [Пример использования](#33-пример-использования)  
@@ -55,7 +55,7 @@
 ### 2.1. Базовый пример
 
 ```tsx
-import usePopup from './usePopup';
+import usePopup from '@qtpy/use-popup';
 
 function App() {
   const { isShowed, toOpenPopup, toClosePopup, Popup } = usePopup(0.3);
@@ -94,7 +94,7 @@ export default App;
     transition: opacity 0.6s;
   }
 
-  &.visible::before {
+  &.isVisible::before {
     opacity: 0.8;
   }
 
@@ -104,7 +104,7 @@ export default App;
     align-items: center;
   }
 
-  &.__remove .Popup_container {
+  &.isRemove .Popup_container {
     transform: translateY(180%);
   }
 }
@@ -112,7 +112,7 @@ export default App;
 
 ---
 
-## 3. `useSimplePopup` — обёртка над `usePopup`
+## `useSimplePopup` — обёртка над `usePopup`
 
 ### 3.1. Назначение
 
@@ -125,7 +125,7 @@ export default App;
 ```tsx
 // useSimplePopup.ts
 import { useMemo } from 'react';
-import usePopup from '@qtpy/usePopup';
+import usePopup from '@qtpy/use-popup';
 
 export default function useSimplePopup() {
   const { Popup, toOpenPopup, toClosePopup, isShowed } = usePopup(0.5);
@@ -179,5 +179,5 @@ export default function App() {
 
 * Используйте `useSimplePopup`, когда требуется быстрое внедрение модального окна без кастомизации.
 * Для более гибкого управления стилями и поведением — применяйте `usePopup` напрямую.
-* Обязательно стилизуйте классы `.Popup`, `.Popup_container` и анимационные состояния (`.visible`, `.__remove`) в соответствии с UX/UI вашего приложения.
+* Обязательно стилизуйте классы `.Popup`, `.Popup_container` и анимационные состояния (`.isVisible`, `.isRemove`) в соответствии с UX/UI вашего приложения.
 * Не забудьте добавить корневой элемент с соответствующим ID (`root`), если он не определён по умолчанию в вашем DOM.

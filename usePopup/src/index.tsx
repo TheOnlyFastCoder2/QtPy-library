@@ -1,8 +1,6 @@
-import { useState, memo, useRef, useEffect, useMemo, ReactNode } from "react";
-import { createPortal } from "react-dom";
-import "./styles.css";
-
-
+import { useState, memo, useRef, useEffect, useMemo, ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import './styles.css';
 
 /**
  * Popup component properties.
@@ -16,7 +14,7 @@ interface PopupProps {
 
 /**
  * A custom React hook for managing popup/dialog state and rendering.
- * 
+ *
  * @param {number} [delay=0] - The delay in seconds before the popup closes after triggering close.
  * @returns {Object} An object containing popup state and controls.
  */
@@ -44,7 +42,7 @@ export default function usePopup(delay: number = 0) {
 
   const handleClose = () => {
     if (refContainer?.current) {
-      refContainer.current.classList.add("__remove");
+      refContainer.current.classList.add('isRemove');
     }
     toClosePopup();
   };
@@ -66,21 +64,23 @@ export default function usePopup(delay: number = 0) {
          * @param {PopupProps} props - Popup component properties.
          * @returns {React.ReactPortal|null} The portal-rendered popup or null if not shown.
          */
-        ({ children, className = "", isOnCloseBG = true, domPortalById = 'root' }: PopupProps) => {
+        ({ children, className = '', isOnCloseBG = true, domPortalById = 'root' }: PopupProps) => {
           const overlays = document.getElementById(domPortalById) || document.body;
+          const clIsVisible = isShowed ? 'isVisible' : '';
+          const clIsOnCloseBG = isShowed ? 'onCloseBG' : '';
+
           return isShowed && overlays
             ? createPortal(
-              <div
-                onClick={ isOnCloseBG ? handleClickOverlay : undefined }
-                className={ `Popup ${className} ${isShowed ? "visible" : ""} ${isOnCloseBG ? "onCloseBG" : ""
-                  }` }
-                ref={ refContainer }
-              >
-                <div className="Popup_container">{ children }</div>
-              </div>,
-              overlays
-            )
-            : null
+                <div
+                  onClick={isOnCloseBG ? handleClickOverlay : undefined}
+                  className={`Popup ${className} ${clIsVisible} ${clIsOnCloseBG}`}
+                  ref={refContainer}
+                >
+                  <div className="Popup_container">{children}</div>
+                </div>,
+                overlays
+              )
+            : null;
         }
       ),
     }),

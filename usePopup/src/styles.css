@@ -24,7 +24,7 @@
     }
   }
 
-  &.__remove::before {
+  &.isRemove::before {
     opacity: 0;
   }
 
