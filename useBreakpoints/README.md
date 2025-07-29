@@ -32,7 +32,7 @@ const config = useBreakpoints({
   "1440,900": { fontSize: 20 },
   "768,600": { fontSize: 16 },
   0: { fontSize: 14 }
-}, 1000);  // Задержка 500 мс при resize
+}, 1000);  // Задержка 1000 мс при resize
 ```
 
 ---
