@@ -64,8 +64,8 @@ const swiperDimensions = useBreakpoints(
   useBreakpoints.memoConfig(
     {
       1440: { width: 494 },
-      700: { width: useBreakpoints.getDeltaSize(700, 1440, 294, 374, 1.2) },
-      500: { width: useBreakpoints.getDeltaSize(500, 1024, 374, 283, 1.2) },
+      700: { width: useBreakpoints.getDeltaSize(700, 1440, 374, 294, 1.2) },
+      500: { width: useBreakpoints.getDeltaSize(500, 1024, 274, 183, 0.8) },
     },
     [] // Зависимости для мемоизации
   )()
