@@ -133,7 +133,7 @@ const width = useBreakpoints({
 
 ```ts
 import { useRef } from 'react';
-import useBreakpoints, { DynamicRule, UseResponsiveValueBase } from './useBreakpoints';
+import useBreakpoints, { DynamicRule, UseResponsiveValueBase } from '@qtpy/use-breakpoints';
 
 interface ExtendedMethods extends UseResponsiveValueBase {
   decrement: (base: number, step: number) => DynamicRule;

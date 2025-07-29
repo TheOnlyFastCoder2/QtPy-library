@@ -1,7 +1,9 @@
 import { useRef } from 'react';
-import useBreakpoints, { DynamicRule, UseResponsiveValueBase } from './main';
+import useBreakpoints, { DynamicRule, UseResponsiveValueBase, CalculateFunction } from './main';
 
-interface ExtendsMethods extends UseResponsiveValueBase { 
+export type { DynamicRule, UseResponsiveValueBase, CalculateFunction };
+
+export interface ExtendsMethods extends UseResponsiveValueBase {
   decrement: (base: number, step: number) => DynamicRule;
   getDeltaSize: (
     minViewport: number,
