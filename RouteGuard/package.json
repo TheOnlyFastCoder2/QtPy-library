@@ -1,9 +1,9 @@
 {
-  "name": "@qtpy/router-guard",
+  "name": "@qtpy/route-guard",
   "version": "0.0.1",
   "author": "QtPy",
   "license": "MIT",
-  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/tree/main/useBreakpoints",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/tree/main/RouteGuard",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -20,14 +20,12 @@
   ],
   "keywords": [
     "react",
-    "media query",
-    "hooks",
-    "ui"
+    "react-router"
   ],
   "dependencies": {
     "react": ">=18.0",
     "react-dom": ">=18.0",
-    "react-router": "^7.7.1"
+    "react-router-dom": ">=7.7.1"
   },
   "scripts": {
     "dev": "vite",

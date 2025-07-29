@@ -31,7 +31,7 @@
 Рендеринг дочерних элементов только при совпадении текущего маршрута с одним из указанных допустимых маршрутов:
 
 ```jsx
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   return (
@@ -47,7 +47,7 @@ function App() {
 Используйте `isInverted`, чтобы рендерить дочерние элементы, когда текущий маршрут *не* соответствует ни одному из допустимых маршрутов:
 
 ```jsx
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   return (
@@ -63,7 +63,7 @@ function App() {
 Используйте callback-функцию `onLister` для обработки изменений статуса соответствия маршрута:
 
 ```jsx
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   const handleRouteChange = (isShow, route) => {
@@ -86,7 +86,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   return (
@@ -112,7 +112,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   return (
@@ -138,7 +138,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/router-guard';
+import RouteGuard from '@qtpy/route-guard';
 
 function App() {
   const handleRouteChange = (isShow, route) => {
@@ -185,7 +185,7 @@ interface IProps extends PropsWithChildren {
 ## Примечания
 
 - **Производительность**: Компонент обёрнут в `React.memo` для предотвращения ненужных повторных рендеров при неизменных свойствах.
-- **Соответствие маршрутов**: Хук `useMatch` из `react-router` используется для проверки, соответствует ли текущий URL одному из маршрутов в `isValidRoutes`. Используется первый найденный совпадающий маршрут, а callback-функция `onLister` получает совпавший маршрут или `null`, если совпадений нет.
+- **Соответствие маршрутов**: Хук `useMatch` из `react-router-dom` используется для проверки, соответствует ли текущий URL одному из маршрутов в `isValidRoutes`. Используется первый найденный совпадающий маршрут, а callback-функция `onLister` получает совпавший маршрут или `null`, если совпадений нет.
 - **useEffect**: Callback-функция `onLister` вызывается при изменении статуса соответствия или совпавшего маршрута благодаря хуку `useEffect`.
 - **Контекст маршрутизации**: Убедитесь, что `RouteGuard` используется в контексте `react-router` (например, внутри `<BrowserRouter>` или `<Router>`).
 - **Шаблоны маршрутов**: Массив `isValidRoutes` поддерживает шаблоны маршрутов `react-router`, такие как `/user/:id` для динамических маршрутов.

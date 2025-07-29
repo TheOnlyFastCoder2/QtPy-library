@@ -1,5 +1,5 @@
 import { memo, PropsWithChildren, useEffect } from 'react';
-import { useMatch } from 'react-router';
+import { useMatch } from 'react-router-dom';
 
 interface IProps extends PropsWithChildren {
   isValidRoutes: Array<string>;
