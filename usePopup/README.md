@@ -133,26 +133,20 @@ import '@qtpy/use-popup/index.css';
 export default function useSimplePopup() {
   const { Popup, toOpenPopup, toClosePopup, isShowed } = usePopup(0.5);
 
-  return {
+  return Popup.Memo({
     toOpenPopup,
     toClosePopup,
     isShowed,
-
-    // Обёртка Popup с предустановленным контентом
-    Popup: () =>
-      useMemo(
-        () => (
-          <Popup className="MWBottom">
-            <div style={{ padding: 20, background: '#fff', borderRadius: 8 }}>
-              <h2>Простое модальное окно</h2>
-              <p>Это контент по умолчанию.</p>
-              <button onClick={toClosePopup}>Закрыть</button>
-            </div>
-          </Popup>
-        ),
-        [isShowed]
-      ),
-  };
+    Popup: () => (
+      <Popup className="MWBottom">
+        <div style={{ padding: 20, background: '#fff', borderRadius: 8 }}>
+          <h2>Простое модальное окно</h2>
+          <p>Это контент по умолчанию.</p>
+          <button onClick={toClosePopup}>Закрыть</button>
+        </div>
+      </Popup>
+    ),
+  });
 }
 ```
 

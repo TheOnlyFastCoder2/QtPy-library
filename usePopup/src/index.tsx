@@ -1,10 +1,7 @@
-import { useState, memo, useRef, useEffect, useMemo, ReactNode } from 'react';
+import { useState, useRef, useEffect, useMemo, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import './index.css';
 
-/**
- * Popup component properties.
- */
 interface PopupProps {
   children: ReactNode;
   className?: string;
@@ -12,12 +9,6 @@ interface PopupProps {
   domPortalById?: string;
 }
 
-/**
- * A custom React hook for managing popup/dialog state and rendering.
- *
- * @param {number} [delay=0] - The delay in seconds before the popup closes after triggering close.
- * @returns {Object} An object containing popup state and controls.
- */
 export default function usePopup(delay: number = 0) {
   const refTimeId = useRef<NodeJS.Timeout | null>(null);
   const refContainer = useRef<HTMLDivElement | null>(null);
@@ -57,38 +48,56 @@ export default function usePopup(delay: number = 0) {
     }
   };
 
-  return useMemo(
-    () => ({
+  // Базовый компонент Popup
+  const Popup = ({
+    children,
+    className = '',
+    isOnCloseBG = true,
+    domPortalById = 'root',
+  }: PopupProps) => {
+    const overlays = document.getElementById(domPortalById) || document.body;
+    const clIsVisible = isShowed ? 'isVisible' : '';
+    const clIsOnCloseBG = isShowed ? 'onCloseBG' : '';
+
+    return isShowed && overlays
+      ? createPortal(
+        <div
+          onClick={ isOnCloseBG ? handleClickOverlay : undefined }
+          className={ `Popup ${className} ${clIsVisible} ${clIsOnCloseBG}` }
+          ref={ refContainer }
+        >
+          <div className="Popup_container">{ children }</div>
+        </div>,
+        overlays
+      )
+      : null;
+  };
+
+  // Создаем расширение Popup.Memo с методом Memo для пользовательских оберток
+  const PopupWithMemo = Object.assign(Popup, {
+    Memo: function <T extends object>(config: {
+      toOpenPopup: () => void;
+      toTogglePopup: () => void;
+      isShowed: boolean;
+      Popup: React.FC<T>;
+    }) {
+
+      return useMemo(() => ({
+        toOpenPopup: config.toOpenPopup,
+        toTogglePopup: config.toTogglePopup,
+        isShowed: config.isShowed,
+        Popup: config.Popup,
+      }), [config.isShowed]);
+    },
+  });
+
+  return useMemo(() => {
+    return {
       isShowed,
       toOpenPopup,
       toTogglePopup,
       toClosePopup: handleClose,
-      Popup: memo(
-        /**
-         * Renders a popup component via React portal.
-         * @param {PopupProps} props - Popup component properties.
-         * @returns {React.ReactPortal|null} The portal-rendered popup or null if not shown.
-         */
-        ({ children, className = '', isOnCloseBG = true, domPortalById = 'root' }: PopupProps) => {
-          const overlays = document.getElementById(domPortalById) || document.body;
-          const clIsVisible = isShowed ? 'isVisible' : '';
-          const clIsOnCloseBG = isShowed ? 'onCloseBG' : '';
-
-          return isShowed && overlays
-            ? createPortal(
-                <div
-                  onClick={isOnCloseBG ? handleClickOverlay : undefined}
-                  className={`Popup ${className} ${clIsVisible} ${clIsOnCloseBG}`}
-                  ref={refContainer}
-                >
-                  <div className="Popup_container">{children}</div>
-                </div>,
-                overlays
-              )
-            : null;
-        }
-      ),
-    }),
-    [isShowed]
-  );
+      Popup: PopupWithMemo,
+    };
+  }, [isShowed]);
 }
