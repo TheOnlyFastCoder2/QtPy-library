@@ -1,6 +1,6 @@
 import { useState, memo, useRef, useEffect, useMemo, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import './styles.css';
+import './index.css';
 
 /**
  * Popup component properties.
@@ -24,10 +24,10 @@ export default function usePopup(delay: number = 0) {
   const [isShowed, setIsShowed] = useState(false);
 
   const toOpenPopup = () => setIsShowed(true);
-  const toClosePopup = (callback?: () => void) => {
+
+  const toClosePopup = () => {
     if (refTimeId.current !== null) return;
     refTimeId.current = setTimeout(() => {
-      callback?.();
       refTimeId.current = null;
       setIsShowed(false);
     }, delay * 1000);
@@ -47,6 +47,10 @@ export default function usePopup(delay: number = 0) {
     toClosePopup();
   };
 
+  const toTogglePopup = () => {
+    !isShowed ? toOpenPopup() : handleClose();
+  };
+
   const handleClickOverlay = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target instanceof Element && e.target.parentElement === e.currentTarget) {
       handleClose();
@@ -57,6 +61,7 @@ export default function usePopup(delay: number = 0) {
     () => ({
       isShowed,
       toOpenPopup,
+      toTogglePopup,
       toClosePopup: handleClose,
       Popup: memo(
         /**
