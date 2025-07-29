@@ -8,8 +8,8 @@ export interface ExtendsMethods extends UseResponsiveValueBase {
   getDeltaSize: (
     minViewport: number,
     maxViewport: number,
-    fromSize: number,
-    toSize: number,
+    minSize: number,
+    maxSize: number,
     factor?: number
   ) => DynamicRule;
 }
@@ -26,15 +26,15 @@ useBreakpoints.decrement = (base, step) => {
   });
 };
 
-useBreakpoints.getDeltaSize = (minViewport, maxViewport, fromSize, toSize, step = 1.18) => {
+useBreakpoints.getDeltaSize = (minViewport, maxViewport, minSize, maxSize, step = 1.18) => {
   return useBreakpoints.rule<number>((currentWidth) => {
-    if (currentWidth > maxViewport) return fromSize;
-    if (currentWidth < minViewport) return toSize;
+    if (currentWidth > maxViewport) return minSize;
+    if (currentWidth < minViewport) return maxSize;
     const widthDecrease = maxViewport - currentWidth;
     const widthRange = maxViewport - minViewport;
     const steps = widthDecrease / step;
-    const sizeDecrease = (fromSize - toSize) * (steps / widthRange);
-    return Math.max(toSize, fromSize - sizeDecrease);
+    const sizeDecrease = (minSize - maxSize) * (steps / widthRange);
+    return Math.max(maxSize, minSize - sizeDecrease);
   });
 };
 
