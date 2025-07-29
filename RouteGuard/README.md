@@ -31,7 +31,7 @@
 Рендеринг дочерних элементов только при совпадении текущего маршрута с одним из указанных допустимых маршрутов:
 
 ```jsx
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   return (
@@ -47,7 +47,7 @@ function App() {
 Используйте `isInverted`, чтобы рендерить дочерние элементы, когда текущий маршрут *не* соответствует ни одному из допустимых маршрутов:
 
 ```jsx
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   return (
@@ -63,7 +63,7 @@ function App() {
 Используйте callback-функцию `onLister` для обработки изменений статуса соответствия маршрута:
 
 ```jsx
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   const handleRouteChange = (isShow, route) => {
@@ -86,7 +86,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   return (
@@ -112,7 +112,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   return (
@@ -138,7 +138,7 @@ function App() {
 
 ```jsx
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from './RouteGuard';
+import RouteGuard from '@qtpy/router-guard';
 
 function App() {
   const handleRouteChange = (isShow, route) => {
