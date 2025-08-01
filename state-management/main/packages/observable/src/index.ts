@@ -28,10 +28,7 @@ class HistoryManager<T extends object, D extends number = 0> {
   private redoStack = new Map<string, any[]>();
   private perPathMaxLength: Map<string, number>;
 
-  constructor(
-    pathLimits: PathLimitEntry<T, D>[] = [],
-    resolvePath: (path: string | Accessor<any>) => string
-  ) {
+  constructor(pathLimits: PathLimitEntry<T, D>[] = [], resolvePath: (path: string | Accessor<any>) => string) {
     this.perPathMaxLength = new Map();
     for (const [key, max] of pathLimits) {
       //@ts-expect-error
@@ -56,6 +53,27 @@ class HistoryManager<T extends object, D extends number = 0> {
 
     this.undoStack.set(path, undo);
     this.redoStack.set(path, []);
+  }
+
+  getUndo(path: string, step: number): any | undefined {
+    const undo = this.undoStack.get(path) ?? [];
+    if (step < 0 || step >= undo.length) return undefined;
+    return undo[undo.length - 1 - step];
+  }
+
+  getRedo(path: string, step: number): any | undefined {
+    const redo = this.redoStack.get(path) ?? [];
+    if (step < 0 || step >= redo.length) return undefined;
+    return redo[redo.length - 1 - step];
+  }
+
+  getHistory(path: string): { undo: any[]; redo: any[] } {
+    const undo = this.undoStack.get(path) ?? [];
+    const redo = this.redoStack.get(path) ?? [];
+    return {
+      undo: [...undo],
+      redo: [...redo],
+    };
   }
 
   undo(path: string): any | undefined {
@@ -158,10 +176,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const segments = splitPath(path);
     const lastKey = segments.pop()!;
     const parentObj = segments.reduce((o: any, k) => {
-      if (o == null)
-        throw new Error(
-          `Невозможно установить по пути "${path}" — промежуточное значение undefined`
-        );
+      if (o == null) throw new Error(`Невозможно установить по пути "${path}" — промежуточное значение undefined`);
       return o[k as keyof typeof o];
     }, rawState as any);
     parentObj[lastKey as keyof typeof parentObj] = val;
@@ -469,6 +484,27 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
     return Promise.resolve();
   };
+
+  store.getUndo = (p, step) => {
+    validatePath(p);
+    const path = resolve(p);
+    return historyMgr.getUndo(path, step);
+  };
+
+  store.getRedo = (p, step) => {
+    validatePath(p);
+    const path = resolve(p);
+    return historyMgr.getRedo(path, step);
+  };
+
+  
+  store.getHistory = (p) => {
+    validatePath(p);
+    const path = resolve(p);
+    return historyMgr.getHistory(path);
+  };
+
+  
   store.undo = (p) => {
     validatePath(p);
     const path = resolve(p);

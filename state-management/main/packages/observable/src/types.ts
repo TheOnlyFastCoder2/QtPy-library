@@ -19,21 +19,14 @@ export type LiteralIndices<N extends number = 1> = NumberToString<Range<N>>;
  * Генерирует объединение всех кортежей длиной от 0 до N включительно.
  * Например: TupleUpTo<2, number> → [] | [number] | [number, number]
  */
-export type TupleUpTo<
-  T,
-  N extends number,
-  R extends unknown[] = [],
-  U = never
-> = R['length'] extends N ? U | R : TupleUpTo<T, N, [T, ...R], U | R>;
+export type TupleUpTo<T, N extends number, R extends unknown[] = [], U = never> = R['length'] extends N
+  ? U | R
+  : TupleUpTo<T, N, [T, ...R], U | R>;
 
 /**
  * Утилита для извлечения типа элемента массива/кортежа
  */
-export type IsTuple<T> = T extends readonly any[]
-  ? number extends T['length']
-    ? false
-    : true
-  : false;
+export type IsTuple<T> = T extends readonly any[] ? (number extends T['length'] ? false : true) : false;
 
 export type ArrayPaths<T, Depth extends number> = Depth extends 0
   ? TypeError<'Maximum depth exceeded in array path'>
@@ -104,27 +97,17 @@ type TypeError<Message extends string> = {
   __error__: Message;
 };
 
-export type ValidUpdateValue<T, P extends string, D extends number> = ExtractPathType<
-  T,
-  P,
-  D
-> extends TypeError<any>
+export type ValidUpdateValue<T, P extends string, D extends number> = ExtractPathType<T, P, D> extends TypeError<any>
   ? TypeError<'Invalid value type for this path'>
   : SafeExtract<T, P, D> | SafeUpdateFn<T, P, D>;
 
-export type PathDepth<
-  P extends string,
-  Acc extends any[] = []
-> = P extends `${string}.${infer Rest}`
+export type PathDepth<P extends string, Acc extends any[] = []> = P extends `${string}.${infer Rest}`
   ? PathDepth<Rest, [1, ...Acc]>
   : Acc['length'] extends 0
   ? 1
   : Acc['length'];
 
-export type PathTooDeep<
-  P extends string,
-  D extends number
-> = PathDepth<P> extends infer PD extends number
+export type PathTooDeep<P extends string, D extends number> = PathDepth<P> extends infer PD extends number
   ? PD extends Decrement<D> | D
     ? false
     : true
@@ -233,9 +216,7 @@ export type Decrement<N extends number> =
   never;
 
 export type SafePaths<T, D extends number> = D extends 0 ? string : Paths<T, D>;
-export type SafeExtract<T, P, D extends number> = D extends 0
-  ? any
-  : ExtractPathType<T, P & string, D>;
+export type SafeExtract<T, P, D extends number> = D extends 0 ? any : ExtractPathType<T, P & string, D>;
 
 export type SafeUpdateFn<T, P, D extends number> = D extends 0
   ? (prev: any) => any
@@ -255,11 +236,10 @@ export type Accessor<T, R = any> = ($: T, t: <K>(arg: K) => K) => R;
 export type Primitive = string | number | boolean | symbol | null | undefined;
 
 export type ValueOrFn<V> = ((value: V) => V) | V;
-export type ExtractPathReturn<
+export type ExtractPathReturn<T, P extends PathOrAccessor<T, D>, D extends number = MaxDepth> = P extends Accessor<
   T,
-  P extends PathOrAccessor<T, D>,
-  D extends number = MaxDepth
-> = P extends Accessor<T, infer V>
+  infer V
+>
   ? V
   : P extends PathOrError<T, infer S, D>
   ? S extends string
@@ -409,10 +389,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
      * @param path - Accessor-функция или путь к значению.
      * @param valueOrFn - Новое значение или функция обновления.
      */
-    quiet: <const P extends PathOrAccessor<T, D>>(
-      path: P,
-      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>
-    ) => void;
+    quiet: <const P extends PathOrAccessor<T, D>>(path: P, valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>) => void;
   };
 
   /**
@@ -421,10 +398,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param valueOrFn - Новое значение или функция вычисления.
    * @returns Предполагаемое значение.
    */
-  resolveValue<const P extends PathOrAccessor<T, D>>(
-    path: P,
-    valueOrFn: ValueOrFn<P>
-  ): ExtractPathReturn<T, P, D>;
+  resolveValue<const P extends PathOrAccessor<T, D>>(path: P, valueOrFn: ValueOrFn<P>): ExtractPathReturn<T, P, D>;
   /**
    * Преобразует путь или Accessor-функцию в строковый путь для работы с хранилищем.
    * @param path -  Accessor-функция или путь к значению.
@@ -466,6 +440,37 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @returns Был ли выполнен откат.
    */
   redo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
+
+  /**
+   * Получить значение из undo-истории на указанное количество шагов назад.
+   *
+   * @param path - Строковый путь или Accessor-функция к значению.
+   * @param step - Количество шагов назад (0 — текущее значение, 1 — предыдущее и т.д.).
+   * @returns Значение на указанном шаге в истории или undefined, если шаг вне границ.
+   */
+  getUndo<const P extends PathOrAccessor<T, D>>(path: P, step: number): ExtractPathReturn<T, P, D> | undefined;
+
+  /**
+   * Получить значение из redo-истории на указанное количество шагов вперёд.
+   *
+   * @param path - Строковый путь или Accessor-функция к значению.
+   * @param step - Количество шагов вперёд (0 — следующий откат, 1 — через один и т.д.).
+   * @returns Значение на указанном шаге в redo или undefined, если шаг вне границ.
+   */
+  getRedo<const P extends PathOrAccessor<T, D>>(path: P, step: number): ExtractPathReturn<T, P, D> | undefined;
+
+  /**
+   * Получить полную историю изменений (undo и redo) по пути.
+   *
+   * @param path - Строковый путь или Accessor-функция к значению.
+   * @returns Объект с массивами undo и redo.
+   */
+  getHistory<const P extends PathOrAccessor<T, D>>(
+    path: P
+  ): {
+    undo: ExtractPathReturn<T, P, D>[];
+    redo: ExtractPathReturn<T, P, D>[];
+  };
 
   /**
    * Принудительно вызвать обновления по cacheKey.

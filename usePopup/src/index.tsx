@@ -75,19 +75,21 @@ export default function usePopup(delay: number = 0) {
 
   // Создаем расширение Popup.Memo с методом Memo для пользовательских оберток
   const PopupWithMemo = Object.assign(Popup, {
-    Memo: function <T extends object>(config: {
+    Memo: function <T extends object = {}>(config: {
       toOpenPopup: () => void;
       toTogglePopup: () => void;
+      toClosePopup: () => void;
       isShowed: boolean;
       Popup: React.FC<T>;
-    }) {
+    } & T, deps: any[] = []) {
 
       return useMemo(() => ({
+        ...config,
         toOpenPopup: config.toOpenPopup,
         toTogglePopup: config.toTogglePopup,
         isShowed: config.isShowed,
         Popup: config.Popup,
-      }), [config.isShowed]);
+      }), [config.isShowed, ...deps]);
     },
   });
 

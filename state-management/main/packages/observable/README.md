@@ -34,8 +34,13 @@
 6. [История (undo/redo)](#история-undoredo)  
    6.1. [`store.undo(pathOrAccessor)`](#storeundopathoraccessor)  
    6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)  
-   6.3. [`store.clearHistoryPath(pathOrAccessor)`](#storeclearHistoryPathpathoraccessor)  
-   6.4. [`store.clearAllHistory()`](#storeclearAllHistory)
+   6.4. [`store.getUndo(pathOrAccessor, step)`](#storegetundopathoraccessor-step)  
+   6.3. [`store.getRedo(pathOrAccessor, step)`](#storegetredopathoraccessor-step)  
+   6.5. [``store.getHistory(pathOrAccessor)``](#storegetHistorypathoraccessor)  
+   6.6. [`store.clearHistoryPath(pathOrAccessor)`](#storeclearHistoryPathpathoraccessor)    
+   6.7. [`store.clearAllHistory()`](#storeclearAllHistory)  
+
+  
 
 7. [Статистика и очистка](#статистика-и-очистка)  
    7.1. [`store.getMemoryStats()`](#storegetmemorystats)  
@@ -525,6 +530,77 @@ const store = createObservableStore<AppState, DepthPath>(initialState, [], {
   store.undo('counter'); // возвращает к 10
   store.redo('counter');
   console.log(store.get('counter')); // 20
+  ```
+
+---
+
+Вот документация в таком же формате для методов `store.getUndo`, `store.getRedo` и `store.getHistory`:
+
+---
+
+### `store.getUndo(pathOrAccessor, step)`
+
+* **Что делает:** возвращает значение из undo-истории на указанное количество шагов назад по пути `pathOrAccessor`.
+
+  * `step = 0` — текущее значение.
+  * `step = 1` — предыдущее значение.
+  * Если шаг выходит за границы undo-истории, возвращает `undefined`.
+
+* **Пример:**
+
+  ```ts
+  store.$.counter = 10;
+  store.$.counter = 20;
+  store.$.counter = 30;
+
+  store.getUndo('counter', 0); // 30
+  store.getUndo('counter', 1); // 20
+  store.getUndo('counter', 2); // 10
+  store.getUndo('counter', 3); // undefined
+  ```
+
+---
+
+### `store.getRedo(pathOrAccessor, step)`
+
+* **Что делает:** возвращает значение из redo-истории на указанное количество шагов вперёд по пути `pathOrAccessor`.
+
+  * `step = 0` — ближайшее значение для повтора.
+  * `step = 1` — следующее за ним и т.д.
+  * Если redo-история пуста или шаг выходит за границы, возвращает `undefined`.
+
+* **Пример:**
+
+  ```ts
+  store.update('counter', 10);
+  store.update('counter', 20);
+  store.undo('counter'); // возвращает к 10
+  store.undo('counter'); // возвращает к undefined
+
+  store.getRedo('counter', 0); // 10
+  store.getRedo('counter', 1); // 20
+  store.getRedo('counter', 2); // undefined
+  ```
+
+---
+
+### `store.getHistory(pathOrAccessor)`
+
+* **Что делает:** возвращает полную историю изменений по указанному пути в виде объекта `{ undo, redo }`.
+
+  * `undo` — массив значений, от самого первого до текущего.
+  * `redo` — массив отменённых значений, доступных для повторного применения.
+
+* **Пример:**
+
+  ```ts
+  store.update('counter', 10);
+  store.update('counter', 20);
+  store.undo('counter');
+
+  const history = store.getHistory('counter');
+  console.log(history.undo); // [10]
+  console.log(history.redo); // [20]
   ```
 
 ---

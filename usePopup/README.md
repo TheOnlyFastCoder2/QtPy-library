@@ -18,7 +18,9 @@
    3.2. [Пример реализации](#32-пример-реализации)  
    3.3. [Пример использования](#33-пример-использования)
 
-4. [Рекомендации](#4-рекомендации)
+4. [Пример: переключение контента в модалке через `ref`](#пример-переключение-контента-в-модалке-через-ref )
+
+5. [Рекомендации](#4-рекомендации)
 
 ---
 
@@ -170,6 +172,73 @@ export default function App() {
 }
 ```
 
+---
+
+### Пример: переключение контента в модалке через `ref`
+
+```tsx
+// useImperativePopup.tsx
+import { useRef, useState, useImperativeHandle } from 'react';
+import usePopup from '@qtpy/use-popup';
+
+export default function useImperativePopup() {
+  const { Popup, toOpenPopup, toClosePopup } = usePopup(0.2);
+
+  // Императивный ref
+  const contentRef = useRef<Partial<{ setContent: (val: string) => void }>>({});
+
+  // Функция для открытия и изменения контента
+  const showWithContent = (text: string) => {
+    toOpenPopup();
+    setTimeout(() => {
+      contentRef.current?.setContent?.(text);
+    }, 10);
+  };
+
+  return Popup.Memo({
+    toOpenPopup,
+    toClosePopup,
+    showWithContent, // ← использовать извне
+    Popup: () => {
+      const [content, setContent] = useState('Привет!');
+
+      useImperativeHandle(contentRef, () => ({
+        setContent,
+      }));
+
+      return (
+        <Popup className="MWBottom">
+          <div style={{ padding: 20, background: '#fff' }}>
+            <p>{content}</p>
+            <button onClick={toClosePopup}>Закрыть</button>
+          </div>
+        </Popup>
+      );
+    },
+  });
+}
+```
+
+---
+
+### 🔘 Использование
+
+```tsx
+// App.tsx
+import useImperativePopup from './useImperativePopup';
+
+export default function App() {
+  const { Popup, showWithContent } = useImperativePopup();
+
+  return (
+    <div>
+      <button onClick={() => showWithContent('Это контент 1')}>Показать 1</button>
+      <button onClick={() => showWithContent('Это контент 2')}>Показать 2</button>
+      <Popup />
+    </div>
+  );
+}
+```
 ---
 
 ## 4. Рекомендации
