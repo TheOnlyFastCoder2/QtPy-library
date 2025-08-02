@@ -18,7 +18,7 @@
    3.2. [Пример реализации](#32-пример-реализации)  
    3.3. [Пример использования](#33-пример-использования)
 
-4. [Пример: переключение контента в модалке через `ref`](#пример-переключение-контента-в-модалке-через-ref )
+4. [Пример: переключение контента в модалке через `ref`](#пример-переключение-контента-в-модалке-через-ref)
 
 5. [Рекомендации](#4-рекомендации)
 
@@ -32,15 +32,17 @@
 
 ---
 
-### 1.2. Возвращаемые значения
+### 1.2. Возвращаемые значения:
 
-| Имя             | Тип               | Описание                                           |
-| --------------- | ----------------- | -------------------------------------------------- |
-| `isShowed`      | `boolean`         | Признак того, отображается ли модальное окно       |
-| `toOpenPopup`   | `() => void`      | Функция для открытия модального окна               |
-| `toTogglePopup` | `() => void`      | Функция для переключения состояния модального окна |
-| `toClosePopup`  | `() => void`      | Функция для закрытия окна                          |
-| `Popup`         | `React.Component` | Компонент модального окна, выводимый через портал  |
+| Имя             | Тип                 | Описание                                               |
+| --------------- | ------------------- | ------------------------------------------------------ |
+| `isShowed`      | `boolean`           | Признак того, отображается ли модальное окно           |
+| `toOpenPopup`   | `() => void`        | Функция для открытия модального окна                   |
+| `toTogglePopup` | `() => void`        | Функция для переключения состояния модального окна     |
+| `toClosePopup`  | `() => void`        | Функция для закрытия окна                              |
+| `showWithData`  | `(data: T) => void` | Открывает окно (если закрыто) и передаёт в него данные |
+| `Popup`         | `React.Component`   | Компонент модального окна, выводимый через портал      |
+
 
 ---
 
@@ -176,34 +178,33 @@ export default function App() {
 
 ### Пример: переключение контента в модалке через `ref`
 
+Метод `showWithData` открывает попап (если он ещё не открыт) и передаёт в него данные через императивный setData.
+
+```tsx
+const showWithData = (data: T) => {
+  if (!isShowed) setIsShowedPopup(true);
+  refPortalData.current?.setData?.(data);
+};
+```
+
 ```tsx
 // useImperativePopup.tsx
 import { useRef, useState, useImperativeHandle } from 'react';
 import usePopup from '@qtpy/use-popup';
 
+type TypeContent = 'nav' | 'contacts';
 export default function useImperativePopup() {
-  const { Popup, toOpenPopup, toClosePopup } = usePopup(0.2);
-
-  // Императивный ref
-  const contentRef = useRef<Partial<{ setContent: (val: string) => void }>>({});
-
-  // Функция для открытия и изменения контента
-  const showWithContent = (text: string) => {
-    toOpenPopup();
-    setTimeout(() => {
-      contentRef.current?.setContent?.(text);
-    }, 10);
-  };
+  const { Popup, toOpenPopup, showWithData, toClosePopup } = usePopup<TypeContent>(0.2);
 
   return Popup.Memo({
     toOpenPopup,
     toClosePopup,
-    showWithContent, // ← использовать извне
-    Popup: () => {
-      const [content, setContent] = useState('Привет!');
+    showWithData, // ← использовать извне
+    Popup: ({ imperativeRef }) => {
+      const [content, setContent] = useState<TypeContent>('nav');
 
-      useImperativeHandle(contentRef, () => ({
-        setContent,
+      useImperativeHandle(imperativeRef, () => ({
+        setData: setContent,
       }));
 
       return (
@@ -228,17 +229,18 @@ export default function useImperativePopup() {
 import useImperativePopup from './useImperativePopup';
 
 export default function App() {
-  const { Popup, showWithContent } = useImperativePopup();
+  const { Popup, showWithData } = useImperativePopup();
 
   return (
     <div>
-      <button onClick={() => showWithContent('Это контент 1')}>Показать 1</button>
-      <button onClick={() => showWithContent('Это контент 2')}>Показать 2</button>
+      <button onClick={() => showWithData('nav')}>Показать 1</button>
+      <button onClick={() => showWithData('contacts')}>Показать 2</button>
       <Popup />
     </div>
   );
 }
 ```
+
 ---
 
 ## 4. Рекомендации
