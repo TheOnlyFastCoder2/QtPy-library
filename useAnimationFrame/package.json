@@ -1,9 +1,9 @@
 {
   "name": "@qtpy/use-animation-frame",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "author": "QtPy",
   "license": "MIT",
-  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/tree/main/useEvent",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/tree/main/useAnimationFrame",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
