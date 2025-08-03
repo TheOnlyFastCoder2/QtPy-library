@@ -8,7 +8,6 @@
   - [Базовое использование](#базовое-использование)
   - [Инвертированная логика](#инвертированная-логика)
   - [С обработчиком событий](#с-обработчиком-событий)
-- [Примеры](#примеры)
 - [Типы](#типы)
 - [Примечания](#примечания)
 
@@ -22,7 +21,7 @@
 | `isValidRoutes`   | `Array<string>`                         | Обязательное | Массив шаблонов маршрутов для проверки соответствия текущему URL (использует `useMatch`). |
 | `children`        | `React.ReactNode`                       | Обязательное | Контент, который рендерится условно в зависимости от соответствия маршрута. |
 | `isInverted`      | `boolean`                               | `false`      | Если `true`, рендерит дочерние элементы, когда текущий маршрут *не* соответствует ни одному из допустимых маршрутов. |
-| `onLister`        | `(isShow: boolean, route: string \| null) => void` | Опционально | Callback-функция, вызываемая при изменении статуса соответствия или маршрута. |
+| `onListener`        | `(isShow: boolean, route: string \| null) => void` | Опционально | Callback-функция, вызываемая при изменении статуса соответствия или маршрута. |
 
 ## Использование
 
@@ -60,7 +59,7 @@ function App() {
 
 ### С обработчиком событий
 
-Используйте callback-функцию `onLister` для обработки изменений статуса соответствия маршрута:
+Используйте callback-функцию `onListener` для обработки изменений статуса соответствия маршрута:
 
 ```jsx
 import RouteGuard from '@qtpy/route-guard';
@@ -71,96 +70,9 @@ function App() {
   };
 
   return (
-    <RouteGuard isValidRoutes={['/home', '/dashboard']} onLister={handleRouteChange}>
+    <RouteGuard isValidRoutes={['/home', '/dashboard']} onListener={handleRouteChange}>
       <div>Контент виден только на /home или /dashboard</div>
     </RouteGuard>
-  );
-}
-```
-
-## Примеры
-
-### Пример 1: Защита определённых маршрутов
-
-Защитите компонент, чтобы он рендерился только на определённых маршрутах:
-
-```jsx
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/route-guard';
-
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="*"
-          element={
-            <RouteGuard isValidRoutes={['/profile', '/settings']}>
-              <div>Страница профиля или настроек</div>
-            </RouteGuard>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
-  );
-}
-```
-
-### Пример 2: Инвертированная защита маршрутов
-
-Показ компонента на всех маршрутах, кроме определённых (например, для публичного layout):
-
-```jsx
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/route-guard';
-
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="*"
-          element={
-            <RouteGuard isValidRoutes={['/login', '/signup']} isInverted>
-              <div>Основной layout приложения</div>
-            </RouteGuard>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
-  );
-}
-```
-
-### Пример 3: С обработчиком изменения маршрута
-
-Логирование изменений маршрута и статуса соответствия:
-
-```jsx
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
-import RouteGuard from '@qtpy/route-guard';
-
-function App() {
-  const handleRouteChange = (isShow, route) => {
-    console.log(`Маршрут изменился: Показ=${isShow}, Маршрут=${route}`);
-  };
-
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route
-          path="*"
-          element={
-            <RouteGuard
-              isValidRoutes={['/home', '/about']}
-              onLister={handleRouteChange}
-            >
-              <div>Страница Home или About</div>
-            </RouteGuard>
-          }
-        />
-      </Routes>
-    </BrowserRouter>
   );
 }
 ```
@@ -173,19 +85,19 @@ function App() {
 interface IProps extends PropsWithChildren {
   isValidRoutes: Array<string>;
   isInverted?: boolean;
-  onLister?: (isShow: boolean, route: string | null) => void;
+  onListener?: (isShow: boolean, route: string | null) => void;
 }
 ```
 
 - `PropsWithChildren` гарантирует, что свойство `children` типизировано как `React.ReactNode`.
 - `isValidRoutes` — массив строк, представляющих шаблоны маршрутов, совместимые с `useMatch` из `react-router`.
 - `isInverted` — опциональный булевый параметр для инверсии логики соответствия.
-- `onLister` — опциональная callback-функция, которая получает статус соответствия (`isShow`) и совпавший маршрут (или `null`).
+- `onListener` — опциональная callback-функция, которая получает статус соответствия (`isShow`) и совпавший маршрут (или `null`).
 
 ## Примечания
 
 - **Производительность**: Компонент обёрнут в `React.memo` для предотвращения ненужных повторных рендеров при неизменных свойствах.
-- **Соответствие маршрутов**: Хук `useMatch` из `react-router-dom` используется для проверки, соответствует ли текущий URL одному из маршрутов в `isValidRoutes`. Используется первый найденный совпадающий маршрут, а callback-функция `onLister` получает совпавший маршрут или `null`, если совпадений нет.
-- **useEffect**: Callback-функция `onLister` вызывается при изменении статуса соответствия или совпавшего маршрута благодаря хуку `useEffect`.
+- **Соответствие маршрутов**: Хук `useMatch` из `react-router-dom` используется для проверки, соответствует ли текущий URL одному из маршрутов в `isValidRoutes`. Используется первый найденный совпадающий маршрут, а callback-функция `onListener` получает совпавший маршрут или `null`, если совпадений нет.
+- **useEffect**: Callback-функция `onListener` вызывается при изменении статуса соответствия или совпавшего маршрута благодаря хуку `useEffect`.
 - **Контекст маршрутизации**: Убедитесь, что `RouteGuard` используется в контексте `react-router` (например, внутри `<BrowserRouter>` или `<Router>`).
 - **Шаблоны маршрутов**: Массив `isValidRoutes` поддерживает шаблоны маршрутов `react-router`, такие как `/user/:id` для динамических маршрутов.

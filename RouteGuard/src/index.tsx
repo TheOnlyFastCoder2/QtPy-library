@@ -4,11 +4,11 @@ import { useMatch } from 'react-router-dom';
 interface IProps extends PropsWithChildren {
   isValidRoutes: Array<string>;
   isInverted?: boolean;
-  onLister?: (isShow: boolean, route: string | null) => void;
+  onListener?: (isShow: boolean, route: string | null) => void;
 }
-const RouteGuard = memo(({ onLister, isValidRoutes, children, isInverted = false }: IProps) => {
-  const refListener = useRef(onLister)
-  refListener.current = onLister;
+const RouteGuard = memo(({ onListener, isValidRoutes, children, isInverted = false }: IProps) => {
+  const refListener = useRef(onListener)
+  refListener.current = onListener;
 
   const matches = isValidRoutes.map((route) => ({
     isMatch: useMatch(route) !== null,
