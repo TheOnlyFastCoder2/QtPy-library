@@ -29,9 +29,9 @@
 Пример использования `useRefMap` с `map` для создания ссылок на элементы и обработки события прокрутки:
 
 ```jsx
-import { useRefMap } from './useRefMap';
+import useRefMap from '@qtpy/use-ref-map';
+import useEvent from '@qtpy/use-event'; //хук для обработки событий
 import { useState } from 'react';
-import { useEvent } from './useEvent'; // Предполагаемый хук для обработки событий
 
 function ProjectsPage() {
   const { getRef } = useRefMap<HTMLDivElement>();
@@ -70,6 +70,7 @@ function ProjectsPage() {
   );
 }
 ```
+Ссылка на hook [**useEvent**](https://www.npmjs.com/package/@qtpy/use-event)  
 
 В этом примере хук `useRefMap` используется для создания ссылок на элементы `<div>` с помощью метода `map` и ключей вида `project_${index}`. При прокрутке страницы хук `useEvent` проверяет положение каждого элемента через `getBoundingClientRect` и обновляет `activeIndex`, если элемент выходит за верхнюю границу окна, подсвечивая активный проект.
 
@@ -78,7 +79,7 @@ function ProjectsPage() {
 Пример императивного вызова метода компонента через `useRefMap`:
 
 ```jsx
-import { useRefMap } from './useRefMap';
+import useRefMap from '@qtpy/use-ref-map';
 
 interface AnimatedLabelComponent {
   setIsActive: (value: boolean) => void;
@@ -107,7 +108,7 @@ function AccordionCard({ keyName, title }: { keyName: string; title: string }) {
 Удаление ненужной ссылки из хранилища:
 
 ```jsx
-import { useRefMap } from './useRefMap';
+import useRefMap from '@qtpy/use-ref-map';
 
 function Component() {
   const { getRef, deleteRef } = useRefMap<HTMLElement>();
@@ -131,7 +132,7 @@ function Component() {
 Получение списка всех ключей для проверки существующих ссылок:
 
 ```jsx
-import { useRefMap } from './useRefMap';
+import useRefMap from '@qtpy/use-ref-map';
 
 function Component() {
   const { getRef, getAllKeys } = useRefMap<HTMLElement>();
