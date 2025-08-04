@@ -160,21 +160,17 @@ export function getStringPath<T extends object>(
   store: T,
   path: string | Accessor<any>
 ): string {
-  // Если это просто строка — используем её напрямую
   let full: string;
   if (typeof path === "string") {
     full = path;
   } else {
-    // path — функция-доступ
     full = getStringOfObject<T>(store, path) as any;
   }
-  // Проверяем, что перед `$` нет других символов, кроме пробелов
   if (full.match(/[^\s].*\$/)) {
     throw new Error(
       `Недопустимый путь: "${full}". "$" должен быть в начале пути например: "($) => $.items.3" `
     );
   }
-  // 1) Ищем "$." и обрезаем всё до и включая "$."
   const dollarIndex = full.indexOf("$.");
   if (dollarIndex >= 0) {
     return full.slice(dollarIndex + 2);
@@ -195,7 +191,6 @@ export function normalizeCacheKey<T, D extends number = MaxDepth>(
   cacheKey: PathOrAccessor<T, D>,
   store: ObservableStore<T, D>
 ): string {
-  // 1. Массив ключей (групповая инвалидация)
   if (Array.isArray(cacheKey)) {
     //@ts-ignore
     return cacheKey

@@ -22,7 +22,7 @@ import {
   calculateSnapshotHash,
 } from './utils';
 
-// --- Helpers & Managers ---
+
 class HistoryManager<T extends object, D extends number = 0> {
   private undoStack = new Map<string, any[]>();
   private redoStack = new Map<string, any[]>();
@@ -149,7 +149,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 ): ObservableStore<T, D> {
   let rawState: T = { ...initialState };
 
-  // === Batching infrastructure ===
+  
   let batching = false;
   let modeBatching: 'proxy' | 'user' = 'user';
   let currentSubscriberMeta: SubscriptionMeta | null = null;
@@ -163,7 +163,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   const currentPending = () => pendingStack[pendingStack.length - 1];
 
-  // read raw value
   const getRaw = (path: string) => {
     const segments = splitPath(path);
     return segments.reduce((o: any, k) => {
@@ -171,7 +170,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       return o[k as keyof typeof o];
     }, rawState as any);
   };
-  // Аналогично для setRaw:
+
   const setRaw = (path: string, val: any) => {
     const segments = splitPath(path);
     const lastKey = segments.pop()!;
@@ -192,12 +191,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
         const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
-        // Трекинг зависимостей
+
         currentSubscriberMeta?.trackedPaths.add(fullPath);
 
         const rawValue = Reflect.get(target, prop, receiver);
 
-        // 🎯 Перехват мутирующих методов массива
         if (Array.isArray(target) && typeof rawValue === 'function' && isArrayMethod(key)) {
           return (...args: any[]) => {
             currentArrayMethod = { name: key };
@@ -218,10 +216,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
           };
         }
 
-        // Защита от циклических ссылок
         if (rawValue === target) return receiver;
 
-        // Рекурсивная проксимация вложенных объектов
+
         if (rawValue !== null && typeof rawValue === 'object') {
           return createReactiveProxy(rawValue, fullPath);
         }
@@ -241,7 +238,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
         } else {
           store.update(fullPath, value);
 
-          // Только если не в массивном методе — иначе invalidate вызывается в batch
           if (!currentArrayMethod && parentFullPath) {
             store.invalidate(parentFullPath);
           }
@@ -297,7 +293,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       isSupportedMetaData: isSupported,
     };
   }
-  // placeholder for store
+
   const store: any = {};
   const stateProxy = createReactiveProxy(rawState);
   Object.defineProperty(store, '$', {
@@ -306,11 +302,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
     configurable: true,
   });
 
-  // resolve paths from proxies or strings
+
   const resolve = (p: string | Accessor<any>) => getStringPath(store?.$, p);
   const historyMgr = new HistoryManager<T, D>(options?.customLimitsHistory ?? [], resolve);
 
-  // notification: global subscribers filtered by cacheKeys
+  
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
@@ -340,7 +336,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     historyMgr.pruneUnused(used);
   };
 
-  // core update logic
+  
   const doUpdate = (path: string, newVal: any, skipHistory = false, keepQuiet = false) => {
     const oldVal = getRaw(path);
     const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
@@ -359,7 +355,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     if (keepQuiet) return;
     notifyInvalidate(path);
   };
-  // Package Update Wrapper
+  
   function commit(pending: Map<string, any>) {
     const changedPaths: string[] = [];
 
@@ -399,7 +395,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     return newVal;
   };
 
-  // API methods
+  
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
@@ -457,22 +453,22 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   store.batch = (fn: () => void) => {
-    // Push a new pending context
+    
     pendingStack.push(new Map());
     batching = true;
 
     try {
-      fn(); // run user's updates
+      fn(); 
     } finally {
       const myPending = pendingStack.pop()!;
       if (pendingStack.length > 0) {
-        // nested batch: merge into parent
+        
         const parent = currentPending()!;
         for (const [path, val] of myPending) {
           parent.set(path, val);
         }
       } else {
-        // top-level batch: commit all changes
+        
         commit(myPending);
         batching = false;
         modeBatching = 'user';
@@ -526,7 +522,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       store.update(path, nextValue, { skipHistory: true, keepQuiet: true });
       return true;
     }
-    // No history to redo
+    
     console.warn(`No redo history for path: ${path}`);
     return false;
   };
@@ -638,7 +634,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     activePathsCount: pathSubscribers.size,
   });
 
-  // apply middlewares
+  
   let wrappedUpdate = store.update;
   middlewares.reverse().forEach((mw) => {
     wrappedUpdate = mw(store, wrappedUpdate);

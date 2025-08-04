@@ -1,4 +1,4 @@
-import { RefObject, useRef, useEffect, useState, useMemo } from 'react';
+import { RefObject, useRef, useEffect } from 'react';
 
 export type RefMap<T> = Record<string, RefObject<T>>;
 
@@ -6,20 +6,19 @@ export type RefMapMethods<T> = {
   getRef: (key: string) => RefObject<T>;
   deleteRef: (key: string) => void;
   clearAllRefs: () => void;
-  allKeys: string[];
+  getAllKeys: () => string[];
 };
 
 export default function useRefMap<T>(): RefMapMethods<T> {
   const refs = useRef<RefMap<T>>({});
   const keys = useRef<Set<string>>(new Set());
-  const [version, setVersion] = useState(0);
 
   const getRef = (key: string) => {
     if (!refs.current[key]) {
-      refs.current[key] = { current: null as unknown as T };
+      refs.current[key] = { current: null } as RefObject<T>;
       keys.current.add(key);
     }
-    return refs.current[key] as RefObject<T>;
+    return refs.current[key];
   };
 
   const deleteRef = (key: string) => {
@@ -30,18 +29,22 @@ export default function useRefMap<T>(): RefMapMethods<T> {
   };
 
   const clearAllRefs = () => {
-    Object.keys(refs.current).forEach(deleteRef);
-    setVersion((v) => v + 1);
+    refs.current = {};
+    keys.current = new Set();
   };
 
   useEffect(() => () => clearAllRefs(), []);
 
-  return {
-    getRef,
-    deleteRef,
-    clearAllRefs,
-    allKeys: useMemo(() => Array.from(keys.current), [version]),
-  };
+  const methods = useRef<RefMapMethods<T>>(
+    Object.freeze({
+      getRef,
+      deleteRef,
+      clearAllRefs,
+      getAllKeys: () => Array.from(keys.current),
+    })
+  );
+
+  return methods.current;
 }
 
 export type UseRefMapReturn<T, E extends keyof RefMapMethods<T>> = Pick<RefMapMethods<T>, E>;

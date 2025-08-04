@@ -18,7 +18,7 @@
 | `getRef`       | `(key: string) => RefObject<T>`         | Возвращает ссылку (`RefObject`) для указанного ключа. Если ссылка не существует, создаётся новая с `current: null`. |
 | `deleteRef`    | `(key: string) => void`                 | Удаляет ссылку и соответствующий ключ из внутреннего хранилища.          |
 | `clearAllRefs` | `() => void`                            | Очищает все ссылки и ключи из внутреннего хранилища.                     |
-| `allKeys`   | `string[]`                              | Возвращает массив всех ключей, связанных с существующими ссылками.       |
+| `getAllKeys`   | `() => string[]`                              | Возвращает массив всех ключей, связанных с существующими ссылками.       |
 
 ## Использование
 
@@ -32,7 +32,7 @@ import useEvent from '@qtpy/use-event'; // хук для обработки со
 import { useState } from 'react';
 
 function ProjectsPage() {
-  const { getRef, allKeys } = useRefMap<HTMLDivElement>();
+  const { getRef, getAllKeys } = useRefMap<HTMLDivElement>();
   const [activeIndex, setActiveIndex] = useState(0);
   const projects = ['Проект 1', 'Проект 2', 'Проект 3'];
 
@@ -64,7 +64,7 @@ function ProjectsPage() {
         ))}
       </div>
       <p>Активный проект: {projects[activeIndex]}</p>
-      <p>Ключи ссылок: {allKeys.join(', ')}</p>
+      <p>Ключи ссылок: {getAllKeys.join(', ')}</p>
     </div>
   );
 }
@@ -72,7 +72,7 @@ function ProjectsPage() {
 
 Ссылка на хук [**useEvent**](https://www.npmjs.com/package/@qtpy/use-event)
 
-В этом примере хук `useRefMap` используется для создания ссылок на элементы `<div>` с помощью метода `map` и ключей вида `project_${index}`. При прокрутке страницы хук `useEvent` проверяет положение каждого элемента через `getBoundingClientRect` и обновляет `activeIndex`, если элемент выходит за верхнюю границу окна, подсвечивая активный проект. Список ключей выводится через `allKeys`.
+В этом примере хук `useRefMap` используется для создания ссылок на элементы `<div>` с помощью метода `map` и ключей вида `project_${index}`. При прокрутке страницы хук `useEvent` проверяет положение каждого элемента через `getBoundingClientRect` и обновляет `activeIndex`, если элемент выходит за верхнюю границу окна, подсвечивая активный проект. Список ключей выводится через `getAllKeys`.
 
 ### Императивное управление (вызов метода компонента)
 
@@ -135,11 +135,11 @@ function Component() {
 import useRefMap from '@qtpy/use-ref-map';
 
 function Component() {
-  const { getRef, clearAllRefs, allKeys } = useRefMap<HTMLElement>();
+  const { getRef, clearAllRefs, getAllKeys } = useRefMap<HTMLElement>();
 
   const clearRefs = () => {
     clearAllRefs();
-    console.log('Все ссылки очищены. Текущие ключи:', allKeys);
+    console.log('Все ссылки очищены. Текущие ключи:', getAllKeys());
   };
 
   return (
@@ -147,7 +147,7 @@ function Component() {
       <section ref={getRef('section1')}>Секция 1</section>
       <section ref={getRef('section2')}>Секция 2</section>
       <button onClick={clearRefs}>Очистить все ссылки</button>
-      <p>Ключи: {allKeys.join(', ')}</p>
+      <p>Ключи: {getAllKeys().join(', ')}</p>
     </div>
   );
 }
@@ -161,10 +161,10 @@ function Component() {
 import useRefMap from '@qtpy/use-ref-map';
 
 function Component() {
-  const { getRef, allKeys } = useRefMap<HTMLElement>();
+  const { getRef, getAllKeys } = useRefMap<HTMLElement>();
 
   const logKeys = () => {
-    console.log('Текущие ключи:', allKeys);
+    console.log('Текущие ключи:', getAllKeys());
   };
 
   return (
@@ -172,7 +172,7 @@ function Component() {
       <section ref={getRef('section1')}>Секция 1</section>
       <section ref={getRef('section2')}>Секция 2</section>
       <button onClick={logKeys}>Вывести ключи</button>
-      <p>Ключи: {allKeys.join(', ')}</p>
+      <p>Ключи: {getAllKeys().join(', ')}</p>
     </div>
   );
 }
@@ -189,7 +189,7 @@ export type RefMapMethods<T> = {
   getRef: (key: string) => RefObject<T>;
   deleteRef: (key: string) => void;
   clearAllRefs: () => void;
-  allKeys: string[];
+  getAllKeys: () => string[];
 };
 
 export type UseRefMapReturn<T, E extends keyof RefMapMethods<T>> = Pick<RefMapMethods<T>, E>;
@@ -205,5 +205,5 @@ export type UseRefMapReturn<T, E extends keyof RefMapMethods<T>> = Pick<RefMapMe
 - **Инициализация ссылок**: Метод `getRef` создаёт новую ссылку с `current: null`, если ссылка для указанного ключа ещё не существует.
 - **Типизация**: Хук поддерживает обобщённый тип `T` для работы с любыми типами данных (например, пользовательскими интерфейсами компонентов или `HTMLElement`). В отличие от предыдущей версии, `getRef` возвращает `RefObject<T>` вместо `RefObject<Partial<T>>`, предполагая, что `current` может быть `null`, но типизация остаётся строгой.
 - **Управление памятью**: Метод `deleteRef` удаляет отдельные ссылки, а `clearAllRefs` очищает все ссылки, предотвращая утечки памяти. Хук автоматически очищает все ссылки при размонтировании компонента через `useEffect`.
-- **Сохранение состояния**: Хук использует `useRef` для хранения ссылок и ключей, а `useMemo` для кэширования массива ключей, обновляемого через внутренний счётчик версии (`version`).
-- **Ограничение типизации**: Свойство `allKeys` возвращает `string[]` напрямую, а не функцию, что упрощает доступ к ключам, но требует использования `useMemo` для оптимизации рендеринга.
+- **Сохранение состояния**: Хук использует `useRef` для хранения ссылок и ключей.
+- **Ограничение типизации**: Свойство `getAllKeys` возвращает `string[]`.
