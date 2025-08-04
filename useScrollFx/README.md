@@ -215,6 +215,74 @@ function App() {
 
 Метод `getRefTop` возвращает позицию верхней границы элемента относительно области скролла, что полезно для вычислений, связанных с видимостью или позиционированием.
 
+Вторым аргументом метода `setConfig` можно передавать DOM-элемент или объект `Window`, который будет использоваться в качестве целевого элемента для управления скроллом. По умолчанию используется `window`, но вы можете передать любой другой элемент `HTMLElement`, например, `<div>` с прокруткой, чтобы настроить кастомный скроллбар для конкретного контейнера.
+
+### Пример передачи DOM-элемента:
+
+```jsx
+import useScrollFx from '@qtpy/use-scroll-fx';
+import { useRef, useEffect } from 'react';
+
+function App() {
+  const { Scroll, setConfig } = useScrollFx();
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setConfig(
+      {
+        timeoutVisible: 100,
+        browserConfigs: {
+          default: {
+            dumping: 0.99,
+            velocity: 2,
+            threshold: 1,
+            maxVelocity: 40,
+          },
+          firefox: {
+            dumping: 0.99,
+            velocity: 20,
+            threshold: 1,
+            maxVelocity: 120,
+          },
+        },
+        callback: ({ thumbPosition, maxScroll, direction, scrollProgress }) => {
+          console.log(`
+            Scroll data:
+            thumbPosition: ${thumbPosition}
+            direction: ${direction}
+            scrollProgress: ${scrollProgress}
+            maxScroll: ${maxScroll}
+          `);
+        },
+      },
+      scrollContainerRef.current // Передаём DOM-элемент
+    );
+  }, []);
+
+  return (
+    <div>
+      <div
+        ref={scrollContainerRef}
+        style={{ height: '400px', overflowY: 'auto', border: '1px solid #ccc' }}
+      >
+        <div style={{ height: '2000px' }}>
+          <h1>Контент с прокруткой</h1>
+        </div>
+      </div>
+      <Scroll />
+    </div>
+  );
+}
+```
+
+### Объяснение:
+- **Второй аргумент (`el`)**: В примере выше вторым аргументом передаётся `scrollContainerRef.current`, который ссылается на `<div>` с установленным `overflowY: 'auto'`. Это позволяет хуку `useScrollFx` управлять прокруткой внутри этого контейнера вместо глобального `window`.
+- **Гибкость**: Если передать `null` или не передать второй аргумент, хук по умолчанию использует `window` для управления глобальной прокруткой.
+- **Применение**: Передача DOM-элемента полезна для компонентов, где требуется кастомный скроллбар внутри определённого контейнера, например, в модальных окнах, панелях или списках с прокруткой.
+
+### Примечание:
+Убедитесь, что переданный DOM-элемент имеет стили `overflow-y: auto` или `overflow-y: scroll`, чтобы прокрутка работала корректно. Если элемент не передан или передан некорректно, хук вернётся к использованию `window`.
+
 ## Типы
 
 Хук `useScrollFx` использует следующие TypeScript-типы:
