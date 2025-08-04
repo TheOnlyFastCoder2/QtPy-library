@@ -40,8 +40,8 @@ function App() {
       console.log({ thumbPosition, maxScroll, direction, scrollProgress });
     },
     browserConfigs: {
-      default: { dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 },
-      safari: { dumping: 0.87, velocity: 1.2, threshold: 0.3, maxVelocity: 3 },
+      default: {dumping: 0.94, velocity: 2, threshold: 1, maxVelocity: 40},
+      safari: {dumping: 0.93, velocity: 20, threshold: 1, maxVelocity: 120}
     },
   };
 
@@ -130,7 +130,7 @@ function App() {
   useEffect(() => {
     setConfig({
       timeoutVisible: 2000,
-      browserConfigs: { default: { dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 } },
+      browserConfigs: { default: {dumping: 0.99, velocity: 2, threshold: 1, maxVelocity: 40}},
     });
   }, []);
 
@@ -162,7 +162,7 @@ function App() {
   useEffect(() => {
     setConfig({
       timeoutVisible: 2000,
-      browserConfigs: { default: { dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 } },
+      browserConfigs: { default: {dumping: 0.99, velocity: 2, threshold: 1, maxVelocity: 40} },
     });
     setDelayScroll({ scrollBase: 4, scrollByTo: 4 }); // Установка задержек
   }, []);
@@ -192,7 +192,7 @@ function App() {
   useEffect(() => {
     setConfig({
       timeoutVisible: 2000,
-      browserConfigs: { default: { dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 } },
+      browserConfigs: { default: {dumping: 0.99, velocity: 2, threshold: 1, maxVelocity: 40} },
     });
   }, []);
 
