@@ -41,7 +41,7 @@ function App() {
     },
     browserConfigs: {
       default: {dumping: 0.94, velocity: 2, threshold: 1, maxVelocity: 40},
-      safari: {dumping: 0.93, velocity: 20, threshold: 1, maxVelocity: 120}
+      firefox: {dumping: 0.93, velocity: 20, threshold: 1, maxVelocity: 120}
     },
   };
 
@@ -316,7 +316,7 @@ type ScrollConfig = {
   }) => void;
   browserConfigs: {
     default: BrowserConfig;
-    safari?: BrowserConfig;
+    firefox?: BrowserConfig;
     chrome?: BrowserConfig;
     firefox?: BrowserConfig;
   };
@@ -331,7 +331,7 @@ type ScrollConfig = {
 
 ## Примечания
 
-- **Кроссбраузерность**: Хук поддерживает различные браузеры (`safari`, `chrome`, `firefox`, `other`) с индивидуальными настройками анимации через `browserConfigs`.
+- **Кроссбраузерность**: Хук поддерживает различные браузеры (`firefox`, `chrome`, `firefox`, `other`) с индивидуальными настройками анимации через `browserConfigs`.
 - **Мобильные устройства**: На мобильных устройствах скроллбар отключается (`pointerEvents: none`), и используется нативный скролл, если не указан `ignoreEffect`.
 - **Анимация**: Используется `requestAnimationFrame` через хук `useAnimationFrame` для плавной анимации скролла и перетаскивания.
 - **Скрытие скроллбара**: Параметр `timeoutVisible` в `ScrollConfig` позволяет скрывать скроллбар через заданное время бездействия.
