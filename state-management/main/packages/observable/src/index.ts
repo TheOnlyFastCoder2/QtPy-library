@@ -22,7 +22,6 @@ import {
   calculateSnapshotHash,
 } from './utils';
 
-
 class HistoryManager<T extends object, D extends number = 0> {
   private undoStack = new Map<string, any[]>();
   private redoStack = new Map<string, any[]>();
@@ -149,7 +148,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
 ): ObservableStore<T, D> {
   let rawState: T = { ...initialState };
 
-  
   let batching = false;
   let modeBatching: 'proxy' | 'user' = 'user';
   let currentSubscriberMeta: SubscriptionMeta | null = null;
@@ -191,7 +189,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
         const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
-
         currentSubscriberMeta?.trackedPaths.add(fullPath);
 
         const rawValue = Reflect.get(target, prop, receiver);
@@ -217,7 +214,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
         }
 
         if (rawValue === target) return receiver;
-
 
         if (rawValue !== null && typeof rawValue === 'object') {
           return createReactiveProxy(rawValue, fullPath);
@@ -302,11 +298,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
     configurable: true,
   });
 
-
   const resolve = (p: string | Accessor<any>) => getStringPath(store?.$, p);
   const historyMgr = new HistoryManager<T, D>(options?.customLimitsHistory ?? [], resolve);
 
-  
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
@@ -336,7 +330,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
     historyMgr.pruneUnused(used);
   };
 
-  
   const doUpdate = (path: string, newVal: any, skipHistory = false, keepQuiet = false) => {
     const oldVal = getRaw(path);
     const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
@@ -355,7 +348,23 @@ export function createObservableStore<T extends object, D extends number = 0>(
     if (keepQuiet) return;
     notifyInvalidate(path);
   };
-  
+
+  store.update = (pathOrAccessor, valueOrFn, options) => {
+    validatePath(pathOrAccessor);
+    const path = resolve(pathOrAccessor);
+    let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
+
+    if (batching && !options?.keepQuiet) {
+      currentPending()!.set(path, newVal);
+    } else {
+      doUpdate(path, newVal, false, options?.keepQuiet);
+    }
+  };
+
+  store.update.quiet = (pathOrAccessor, valueOrFn) => {
+    store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
+  };
+
   function commit(pending: Map<string, any>) {
     const changedPaths: string[] = [];
 
@@ -369,7 +378,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       }
 
       setRaw(path, value);
-      notifyInvalidate(path);
+      store.update.quiet(path, value);
       changedPaths.push(path);
     }
 
@@ -393,23 +402,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
     });
 
     return newVal;
-  };
-
-  
-  store.update = (pathOrAccessor, valueOrFn, options) => {
-    validatePath(pathOrAccessor);
-    const path = resolve(pathOrAccessor);
-    let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
-
-    if (batching && !options?.keepQuiet) {
-      currentPending()!.set(path, newVal);
-    } else {
-      doUpdate(path, newVal, false, options?.keepQuiet);
-    }
-  };
-
-  store.update.quiet = (pathOrAccessor, valueOrFn) => {
-    store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
   store.asyncUpdate = async (
@@ -453,22 +445,19 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   store.batch = (fn: () => void) => {
-    
     pendingStack.push(new Map());
     batching = true;
 
     try {
-      fn(); 
+      fn();
     } finally {
       const myPending = pendingStack.pop()!;
       if (pendingStack.length > 0) {
-        
         const parent = currentPending()!;
         for (const [path, val] of myPending) {
           parent.set(path, val);
         }
       } else {
-        
         commit(myPending);
         batching = false;
         modeBatching = 'user';
@@ -493,14 +482,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
     return historyMgr.getRedo(path, step);
   };
 
-  
   store.getHistory = (p) => {
     validatePath(p);
     const path = resolve(p);
     return historyMgr.getHistory(path);
   };
 
-  
   store.undo = (p) => {
     validatePath(p);
     const path = resolve(p);
@@ -522,7 +509,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       store.update(path, nextValue, { skipHistory: true, keepQuiet: true });
       return true;
     }
-    
+
     console.warn(`No redo history for path: ${path}`);
     return false;
   };
@@ -634,7 +621,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
     activePathsCount: pathSubscribers.size,
   });
 
-  
   let wrappedUpdate = store.update;
   middlewares.reverse().forEach((mw) => {
     wrappedUpdate = mw(store, wrappedUpdate);
