@@ -461,9 +461,9 @@ export default function useScrollFx() {
   // Обработчик события колесика мыши
   useEvent(
     'wheel',
-    (e) => {
-      if (isMobile) return;
-      if (getBrowserConfig().ignoreEffect) return;
+    (e, remove) => {
+      if (isMobile) return remove();
+      if (getBrowserConfig().ignoreEffect) return remove();
 
       const { scrollElement } = refs;
       if (!scrollElement.current || (scrollElement.current !== window && !(scrollElement.current as HTMLElement).contains(e.target as HTMLElement))) return;
