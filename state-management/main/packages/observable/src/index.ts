@@ -304,7 +304,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
-      if (!meta.cacheKeys || meta.cacheKeys.has(normalizedKey)) {
+   
+      if (meta.cacheKeys && meta.cacheKeys.has(normalizedKey)) {
         currentSubscriberMeta = meta;
         try {
           sub(stateProxy);
@@ -378,12 +379,15 @@ export function createObservableStore<T extends object, D extends number = 0>(
       }
 
       setRaw(path, value);
-      store.update.quiet(path, value);
+      notifyInvalidate(path);
       changedPaths.push(path);
     }
 
     if (changedPaths.length) {
-      subscribers.forEach((sub) => sub(stateProxy));
+      subscribers.forEach((sub) => { 
+        const meta: SubscriptionMeta = (sub as any).__meta;
+        if(!meta.cacheKeys) sub(stateProxy)
+      });
     }
   }
 
