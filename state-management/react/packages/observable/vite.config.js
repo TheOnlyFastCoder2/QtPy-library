@@ -23,7 +23,7 @@ export default defineConfig({
       },
     },
     rollupOptions: {
-      external: ["react", "react-dom", "@qtpy/state-management-observable"],
+      external: ["react", "@qtpy/state-management-observable"],
     },
   },
 });

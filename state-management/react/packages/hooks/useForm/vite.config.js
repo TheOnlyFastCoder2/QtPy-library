@@ -25,7 +25,7 @@ export default defineConfig({
     },
     cssCodeSplit: true,
     rollupOptions: {
-      external: ["react", "react-dom", "@qtpy/state-management-react"],
+      external: ["react", "@qtpy/state-management-react"],
     },
   },
 });

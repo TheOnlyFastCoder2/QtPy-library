@@ -9,51 +9,85 @@ import {
   MetaWeakMap,
 } from "./types";
 
+
+// Вспомогательная функция для извлечения аргументов
+function extractArgs(funcStr: string): string[] {
+  const argsMatch = funcStr.match(/\((.*?)\)/);
+  if (!argsMatch) return [];
+
+  const argsStr = argsMatch[1];
+  return argsStr.split(/\s*,\s*/).filter(Boolean);
+}
+
 /**
- * То же, что раньше: внутри собираются вызовы t(<expr>) и записываются в dynamicValues,
- * но функция возвращает только строку пути в точечной нотации.
- * Параметр t теперь — дженерик-функция <K>(arg: K) => K. Если t не используется, его можно опустить.
+ * Возвращает строку пути в точечной нотации на основе переданной функции.
+ * Первый аргумент функции интерпретируется как store, второй (если есть) — как функция-хелпер.
+ * Поддерживает произвольные имена аргументов.
  *
+ * @param store Объект, из которого строится путь
  * @param fn Стрелочная функция вида:
  *   - ($, t) => $.foo[t(bar),t(42)]
- *   - ($) => $.foo.bar
- *   - u => u.arr[0]
- * @returns Строка вида "$.foo.123.456" или "obj.foo.bar"
+ *   - (obj) => obj.foo.bar
+ *   - (u, helper) => u.arr[helper(0)]
+ * @returns Строка вида "foo.123.456" или "arr.0"
  */
 export function getStringOfObject<T, D extends number = MaxDepth>(
   store: T,
   fn: Accessor<T>
 ): SafePaths<T, D> {
   const fnString = fn.toString().trim();
+  const args = extractArgs(fnString);
 
+  // Экранируем имена аргументов для использования в RegExp
+  const escapedArgs = args.map(arg => arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+  // Формируем регулярное выражение для разбора стрелочной функции
   const arrowMatch = fnString.match(
-    /^\s*(?:\(\s*\$\s*(?:,\s*t\s*)?\s*\)|\$)\s*=>\s*([\s\S]+)$/
+    new RegExp(
+      `^\\s*(?:\\(\\s*${escapedArgs[0]}\\s*(?:,\\s*${escapedArgs[1]}\\s*)?\\s*\\)|${escapedArgs[0]})\\s*=>\\s*([\\s\\S]+)$`
+    )
   );
 
   if (!arrowMatch) {
-    throw new Error(
-      `\n ${fnString} \n Неверные аргументы функции — ожидается '($) => ...', '$ => ...' или '($, t) => ...'`
-    );
+    throw new Error("Invalid function format");
   }
 
   let rawExpr = arrowMatch[1].trim();
 
-  // === 2. Убираем внешние скобки, если они есть ===
+  // Убираем внешние скобки, если они есть
   if (rawExpr.startsWith("(") && rawExpr.endsWith(")")) {
     rawExpr = rawExpr.slice(1, -1).trim();
   }
 
-  // === 3. Убираем пробелы/переносы строк, чтобы получить компактный путь ===
+  // Убираем пробелы и переносы строк
   let compactPath = rawExpr.replace(/\s+/g, "");
 
-  // === 4. Разбиваем конструкции "[expr1,expr2]" → "[expr1][expr2]" пока есть запятая внутри ===
+  // Разбиваем конструкции вида [expr1,expr2] на [expr1][expr2]
   const commaInBracket = /\[([^\[\]]+),([^\[\]]+)\]/;
   while (commaInBracket.test(compactPath)) {
     compactPath = compactPath.replace(/\[([^\[\]]+),([^\[\]]+)\]/g, "[$1][$2]");
   }
 
-  // === 5. Если после этого нет ни одного t(...), — просто обрабатываем статические индексы и возвращаем ===
-  const tCallSimple = /t\(\s*([^\)]+)\s*\)/;
+  // Если второго аргумента нет, используем статическую обработку
+  if (args.length < 2) {
+    let staticPath = compactPath
+      .replace(/\[['"]([\w$]+)['"]\]/g, ".$1") // ['foo'] → .foo
+      .replace(/\[([\w$]+)\]/g, ".$1"); // [123] или [foo] → .123 / .foo
+    if (staticPath.startsWith(".")) {
+      staticPath = staticPath.slice(1);
+    }
+    return staticPath as SafePaths<T, D>;
+  }
+
+  // Получаем имя второго аргумента (например, t или helper)
+  const helperName = args[1];
+  const escapedHelperName = helperName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Регулярные выражения для поиска вызовов второго аргумента (вместо t)
+  const tCallSimple = new RegExp(`${escapedHelperName}\\(\\s*([^\\)]+)\\s*\\)`);
+  const tCallGlobal = new RegExp(`${escapedHelperName}\\(\\s*([^\\)]+)\\s*\\)`, 'g');
+
+  // Если нет вызовов второго аргумента, обрабатываем статические индексы
   if (!tCallSimple.test(compactPath)) {
     let staticPath = compactPath
       .replace(/\[['"]([\w$]+)['"]\]/g, ".$1") // ['foo'] → .foo
@@ -64,61 +98,58 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
     return staticPath as SafePaths<T, D>;
   }
 
-  // === 6. Собираем все выражения внутри t(...) по порядку ===
+  // Собираем все выражения внутри вызовов второго аргумента
   const argNames: string[] = [];
-  const tCallGlobal = /t\(\s*([^\)]+)\s*\)/g;
   let match: RegExpExecArray | null;
   while ((match = tCallGlobal.exec(compactPath)) !== null) {
-    argNames.push(match[1]); // например "address.test" или "32"
+    argNames.push(match[1]);
   }
 
-  // === 7. Подготавливаем массив dynamicValues (хранит пары ["t(expr)", value]) ===
+  // Подготавливаем массив dynamicValues для хранения пар ["helper(expr)", value]
   const dynamicValues: Array<[string, unknown]> = [];
   let callCount = 0;
 
-  // === 8. Дженерик-функция t: запоминает пары ["t(expr)", capturedValue] и возвращает capturedValue ===
-  function t<K>(capturedValue: K): K {
+  // Дженерик-функция для второго аргумента: запоминает пары ["helper(expr)", capturedValue]
+  function helper<K>(capturedValue: K): K {
     const expression = argNames[callCount];
-    dynamicValues.push([`t(${expression})`, capturedValue]);
+    dynamicValues.push([`${helperName}(${expression})`, capturedValue]);
     callCount++;
     return capturedValue;
   }
 
-  // === 9. Вызываем fn(t), чтобы заполнить dynamicValues (игнорируем возможные ошибки доступа) ===
+  // Вызываем fn с учетом количества аргументов
   try {
-    fn(store, t as any);
+    fn(store, helper as any);
   } catch {
-    // Просто игнорируем, если fn пыталась обратиться к реальным объектам вне области.
+    // Игнорируем ошибки доступа
   }
 
-  // === 10. Строим словарь expression → value ===
+  // Строим словарь expression → value
   const nameToValue: Record<string, unknown> = {};
   for (const [callExpr, val] of dynamicValues) {
-    const expr = callExpr.slice(2, -1); // "address.test" или "32"
+    const expr = callExpr.slice(helperName.length + 1, -1);
     nameToValue[expr] = val;
   }
 
-  // === 11. Заменяем каждый t(expr) на полученное значение ===
+  // Заменяем каждый вызов второго аргумента на соответствующее значение
   let replacedPath = compactPath.replace(tCallGlobal, (_all, expr) => {
     const v = nameToValue[expr];
     return v === undefined ? "undefined" : String(v);
   });
 
-  // === 12. Дальше обрабатываем статические индексы: ['foo'] → .foo, [123] → .123 ===
+  // Обрабатываем статические индексы: ['foo'] → .foo, [123] → .123
   replacedPath = replacedPath
     .replace(/\[['"]([\w$]+)['"]\]/g, ".$1")
     .replace(/\[([\w$]+)\]/g, ".$1");
 
-  // === 13. Убираем двойные точки и ведущую точку ===
+  // Убираем двойные точки и ведущую точку
   const noDoubleDots = replacedPath.replace(/\.\./g, ".");
   const normalized = noDoubleDots.startsWith(".")
     ? noDoubleDots.slice(1)
     : noDoubleDots;
 
-  // Возвращаем только итоговую строку:
   return normalized as SafePaths<T, D>;
 }
-
 /**
  * Проверяет, является ли «путь» валидным (строка или Accessor-функция).
  * Если нет — бросает ошибку.
@@ -166,14 +197,28 @@ export function getStringPath<T extends object>(
   } else {
     full = getStringOfObject<T>(store, path) as any;
   }
-  if (full.match(/[^\s].*\$/)) {
+
+  // Извлекаем имя первого аргумента из функции, если path — функция
+  let argName = "$"; // По умолчанию, если path — строка
+  if (typeof path !== "string") {
+    const fnString = path.toString().trim();
+    const args = extractArgs(fnString);
+    argName = args[0] || "$"; // Берем первый аргумент или "$" по умолчанию
+  }
+
+  // Проверяем, что путь не содержит argName в середине или конце
+  const invalidArgNamePattern = new RegExp(`[^\\s].*\\${argName}`);
+  if (full.match(invalidArgNamePattern)) {
     throw new Error(
-      `Недопустимый путь: "${full}". "$" должен быть в начале пути например: "($) => $.items.3" `
+      `Недопустимый путь: "${full}". "${argName}" должен быть в начале пути, например: "(${argName}) => ${argName}.items.3"`
     );
   }
-  const dollarIndex = full.indexOf("$.");
-  if (dollarIndex >= 0) {
-    return full.slice(dollarIndex + 2);
+
+  // Убираем argName из начала пути, если он есть
+  const argNamePrefix = `${argName}.`;
+  const argNameIndex = full.indexOf(argNamePrefix);
+  if (argNameIndex >= 0) {
+    return full.slice(argNameIndex + argNamePrefix.length);
   }
 
   return full;
