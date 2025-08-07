@@ -73,21 +73,25 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   }
 
   /**
-   * Хук-эффект: вызывает effect при изменении значений по путям
-   */
+ * Хук-эффект: вызывает effect при изменении значений по путям или их инвалидации
+ */
   function useStoreEffect<
     const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
   >(
     paths: [...P],
     effect: (values: useStoreReturn<T, P, D>) => void,
-    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
+    options?: { inInvalidation?: boolean }
   ) {
-    //@ts-ignore
-    const values = useStore(paths, options);
+    const values = useStore(paths);
 
     useEffect(() => {
       effect(values);
     }, [...values]);
+
+    useEffect(() => {
+      if (!options?.inInvalidation) return;
+      return store.subscribe(() => effect(values), paths);
+    }, paths);
   }
 
   const reloadComponents = (cacheKeys: PathOrAccessor<T, D>[]) => {

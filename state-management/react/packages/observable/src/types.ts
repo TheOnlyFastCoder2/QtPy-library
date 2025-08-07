@@ -133,7 +133,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
   >(
     paths: P,
     effect: (values: useStoreReturn<T, P, D>) => void,
-    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
+    options?: { inInvalidation?: boolean }
   ): void;
 
   /**
