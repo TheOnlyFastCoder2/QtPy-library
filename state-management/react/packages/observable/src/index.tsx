@@ -41,7 +41,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
     paths: P,
     options?: {
       cacheKeys?: PathOrAccessor<T, D>[],
-      isChangedRef?: React.RefObject<boolean>
+      refInInvalidation?: React.RefObject<boolean>
     }
   ): useStoreReturn<T, P, D> {
     const cacheKeys = [...paths, ...(options?.cacheKeys ?? [])];
@@ -54,18 +54,18 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
 
     const subscribe = (onChange: () => void) => {
       return store.subscribe(() => {
-        let changed = false;
+        let isCacheKey = false;
 
-        const nextSnapshot = cacheKeys.map((p, i) => {
+        const nextSnapshot = cacheKeys.map((p) => {
           const nextValue = store.get(p as any);
-          if (!changed && nextValue !== snapshotRef.current[i]) {
-            changed = true;
+          if (!isCacheKey && nextValue === undefined) {
+            isCacheKey = true;
           }
           return nextValue;
         }) as useStoreReturn<T, P, D>;
 
-        if (options?.isChangedRef) { 
-          options.isChangedRef.current = changed
+        if (options?.refInInvalidation) {
+          options.refInInvalidation.current = isCacheKey
         }
 
         snapshotRef.current = nextSnapshot;
@@ -97,13 +97,13 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
     effect: (values: useStoreReturn<T, P, D>) => void,
     options?: { inInvalidation?: boolean }
   ) {
-    const isChangedRef = useRef(false);
+    const refInInvalidation = useRef(false);
     const countRef = useRef(0);
-    const values = useStore(paths, { isChangedRef });
+    const values = useStore(paths, { refInInvalidation });
 
-    if (isChangedRef.current && options?.inInvalidation) {
+    if (refInInvalidation.current && options?.inInvalidation) {
       countRef.current += 1;
-      isChangedRef.current = false;
+      refInInvalidation.current = false;
     }
 
     useEffect(() => {
