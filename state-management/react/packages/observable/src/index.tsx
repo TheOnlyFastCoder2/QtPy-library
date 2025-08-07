@@ -39,7 +39,10 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
     const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
   >(
     paths: P,
-    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
+    options?: {
+      cacheKeys?: PathOrAccessor<T, D>[],
+      isChangedRef?: React.RefObject<boolean>
+    }
   ): useStoreReturn<T, P, D> {
     const cacheKeys = [...paths, ...(options?.cacheKeys ?? [])];
 
@@ -51,9 +54,21 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
 
     const subscribe = (onChange: () => void) => {
       return store.subscribe(() => {
-        snapshotRef.current = cacheKeys.map((p) =>
-          store.get(p as any)
-        ) as useStoreReturn<T, P, D>;
+        let changed = false;
+
+        const nextSnapshot = cacheKeys.map((p, i) => {
+          const nextValue = store.get(p as any);
+          if (!changed && nextValue !== snapshotRef.current[i]) {
+            changed = true;
+          }
+          return nextValue;
+        }) as useStoreReturn<T, P, D>;
+
+        if (options?.isChangedRef) { 
+          options.isChangedRef.current = changed
+        }
+
+        snapshotRef.current = nextSnapshot;
         onChange();
       }, cacheKeys as any);
     };
@@ -82,16 +97,18 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
     effect: (values: useStoreReturn<T, P, D>) => void,
     options?: { inInvalidation?: boolean }
   ) {
-    const values = useStore(paths);
+    const isChangedRef = useRef(false);
+    const countRef = useRef(0);
+    const values = useStore(paths, { isChangedRef });
+
+    if (isChangedRef.current && options?.inInvalidation) {
+      countRef.current += 1;
+      isChangedRef.current = false;
+    }
 
     useEffect(() => {
       effect(values);
-    }, [...values]);
-
-    useEffect(() => {
-      if (!options?.inInvalidation) return;
-      return store.subscribe(() => effect(values), paths);
-    }, paths);
+    }, [...values, countRef.current]);
   }
 
   const reloadComponents = (cacheKeys: PathOrAccessor<T, D>[]) => {

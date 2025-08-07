@@ -91,7 +91,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    */
   useStore<const P extends readonly PathOrAccessor<T, D>[]>(
     paths: P,
-    options?: { cacheKeys?: PathOrAccessor<T, D>[] }
+    options?: { cacheKeys?: PathOrAccessor<T, D>[], isChangedRef?: React.RefObject<boolean> }
   ): useStoreReturn<T, P, D>;
 
   /**
