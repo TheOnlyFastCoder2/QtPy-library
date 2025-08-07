@@ -428,6 +428,31 @@ console.log('Будет следующий counter:', nextCounter);
   ```
 
 ---
+### `store.asyncUpdate.quiet(pathOrAccessor, asyncUpdater, options?)`
+
+Вариант `asyncUpdate`, который **не вызывает перерисовку компонентов и не активирует подписки**. Это удобно для фоновых обновлений или временных значений, которые не должны вызывать реакцию в UI.
+
+
+- **Пример:**
+
+  ```ts
+  // Временно устанавливаем $.status = 'loading', без триггера подписок
+  await store.asyncUpdate.quiet(
+    'status',
+    async (_, signal) => {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(resolve, 1000);
+        signal.addEventListener('abort', () => {
+          clearTimeout(timeout);
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+      return 'idle';
+    },
+    { abortPrevious: true }
+  );
+  ```
+---
 
 ### `store.cancelAsyncUpdates(pathOrAccessor?)`
 

@@ -304,7 +304,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
   function notifyInvalidate(normalizedKey: string) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
-      const condition = (batching ? meta.cacheKeys && meta.cacheKeys.has(normalizedKey) : !meta.cacheKeys || meta.cacheKeys.has(normalizedKey) ) 
+      const condition = batching
+        ? meta.cacheKeys && meta.cacheKeys.has(normalizedKey)
+        : !meta.cacheKeys || meta.cacheKeys.has(normalizedKey);
       if (condition) {
         currentSubscriberMeta = meta;
         try {
@@ -411,11 +413,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.asyncUpdate = async (
     pathOrAccessor: string | (() => any),
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
-    options: { abortPrevious?: boolean } = { abortPrevious: false }
+    options: { abortPrevious?: boolean; keepQuiet: boolean }
   ) => {
+    const { abortPrevious = false, keepQuiet = false } = options;
     validatePath(pathOrAccessor);
     const pathStr = resolve(pathOrAccessor);
-    if (options.abortPrevious) {
+    if (abortPrevious) {
       const prevCtrl = aborters.get(pathStr);
       if (prevCtrl) {
         prevCtrl.abort();
@@ -437,7 +440,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const newValue = await updater(oldValue, ctrl.signal);
 
       if (!ctrl.signal.aborted) {
-        store.update(pathStr, newValue);
+        store.update(pathStr, newValue, { keepQuiet: keepQuiet });
       }
     } catch (e) {
       if ((e as any).name !== 'AbortError') {
@@ -446,6 +449,16 @@ export function createObservableStore<T extends object, D extends number = 0>(
     } finally {
       aborters.delete(pathStr);
     }
+  };
+  store.asyncUpdate.quiet = async (
+    pathOrAccessor: string | (() => any),
+    updater: (cur: any, signal: AbortSignal) => Promise<any>,
+    options: { abortPrevious?: boolean } = {}
+  ) => {
+    return store.asyncUpdate(pathOrAccessor, updater, {
+      abortPrevious: options.abortPrevious ?? false,
+      keepQuiet: true,
+    });
   };
 
   store.batch = (fn: () => void) => {

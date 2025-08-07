@@ -421,11 +421,19 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param asyncUpdater - Функция, возвращающая промис нового значения.
    * @param options - Опции (например, отмена предыдущих).
    */
-  asyncUpdate<const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
-    path: P,
-    asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
-    options?: { abortPrevious?: boolean }
-  ): Promise<void>;
+  asyncUpdate: {
+    <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
+      path: P,
+      asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
+      options?: { abortPrevious?: boolean, keepQuiet?: boolean}
+    ): Promise<void>;
+
+    quiet: <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
+      path: P,
+      asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
+      options?: { abortPrevious?: boolean }
+    ) => Promise<void>;
+  };
 
   /**
    * Откатить последнее изменение по пути.
