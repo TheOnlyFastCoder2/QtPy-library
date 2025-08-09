@@ -19,7 +19,6 @@ export type FormField<TValue, TMessage, TLabel> = {
   dataLabel: null | any;
   dataValidate: null | any;
   isTouched: boolean;
-  isFocused: boolean;
   isDirty: boolean;
   initialValue: TValue;
 };

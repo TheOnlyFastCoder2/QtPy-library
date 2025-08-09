@@ -13,7 +13,7 @@ import {
   MessageDataType,
   PortalTarget,
 } from './types';
-import { runValidation, getPath, convertData, convertMessage, convertLabel, handleFieldInteraction } from './utils';
+import { runValidation, getPath, convertData, convertMessage, convertLabel } from './utils';
 
 export default function createForm<TMap extends FormValueMap>(config: FormConfigFromMap<TMap>) {
   const formStore = createReactStore<FormStateFromMap<TMap>>({
@@ -22,10 +22,14 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
         ...acc,
         [key]: {
           label: field.label,
-          validate: typeof field.validate === 'function' ? field.validate.bind(field) : field.validate, // Поддержка RegExp или функции
+          validate:
+            typeof field.validate === 'function' ? field.validate.bind(field) : field.validate, // Поддержка RegExp или функции
           message: field.message,
           value: field.initialValue ?? '',
-          isError: field.initialValue ? !runValidation(field.validate, field.initialValue, null) : false,
+          isError:
+            field.initialValue !== undefined
+              ? !runValidation(field.validate, field.initialValue, null)
+              : false,
           dataLabel: null,
           dataMessage: null,
           dataValidate: null,
@@ -62,9 +66,31 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     formStore.update(($) => $.isValid, isFormValid);
   };
 
-  const handleSubmit = (event?: React.FormEvent<HTMLFormElement>) => {
+  const validateAllFields = () => {
+    const fields = formStore.get(($) => $.fields);
+    let isFormValid = true;
+
+    for (const key in fields) {
+      formStore.update(
+        ($, t) => $.fields[t(key)].isError,
+        () => {
+          const field = fields[key];
+          const isValid = runValidation(field.validate, field.value, null);
+          if (!isValid || field.value == null) {
+            isFormValid = false;
+          }
+          return !isValid;
+        }
+      );
+    }
+
+    formStore.update(($) => $.isValid, isFormValid);
+  };
+  
+  const handleSubmit = (event?: React.MouseEvent<HTMLElement, MouseEvent>) => {
     event?.preventDefault?.();
     const isSubmitted = formStore.get(($) => $.isSubmitted);
+    validateAllFields();
     if (!isSubmitted) return formStore.update(($) => $.isSubmitted, true);
     formStore.reloadComponents(['onSubmit']);
   };
@@ -101,19 +127,30 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     );
   };
 
-  const setPortalData = <K extends keyof TMap>(key: K, to: PortalTarget, data: MessageDataType<TMap[K]>) => {
+  const setPortalData = <K extends keyof TMap>(
+    key: K,
+    to: PortalTarget,
+    data: MessageDataType<TMap[K]>
+  ) => {
     const path = getPath(to);
     const d = convertData(data);
     formStore.update(($, t) => $.fields[t(key)][t(path)], d);
   };
 
-  setPortalData.quiet = <K extends keyof TMap>(key: K, to: PortalTarget, data: MessageDataType<TMap[K]>) => {
+  setPortalData.quiet = <K extends keyof TMap>(
+    key: K,
+    to: PortalTarget,
+    data: MessageDataType<TMap[K]>
+  ) => {
     const path = getPath(to);
     const d = convertData(data);
     formStore.update.quiet(($, t) => $.fields[t(key)][t(path)], d);
   };
 
-  const getPortalData = <K extends keyof TMap>(key: K, from: PortalTarget): MessageDataType<TMap[K]> => {
+  const getPortalData = <K extends keyof TMap>(
+    key: K,
+    from: PortalTarget
+  ): MessageDataType<TMap[K]> => {
     const path = getPath(from);
     return formStore.get(($, t) => $.fields[t(key)][t(path)]) as any as MessageDataType<TMap[K]>;
   };
@@ -129,14 +166,17 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
         fields[key] = {
           label: config.label,
           message: config.message,
-          validate: typeof config.validate === 'function' ? config.validate.bind(config) : config.validate, // Поддержка RegExp или функции
+          validate:
+            typeof config.validate === 'function' ? config.validate.bind(config) : config.validate, // Поддержка RegExp или функции
           value: initialValue,
-          isError: initialValue !== undefined ? !runValidation(config.validate, initialValue, null) : false,
+          isError:
+            initialValue !== undefined
+              ? !runValidation(config.validate, initialValue, null)
+              : false,
           dataLabel: null,
           dataMessage: null,
           dataValidate: null,
           isTouched: false,
-          isFocused: false,
           isDirty: false,
           initialValue: initialValue,
         };
@@ -151,7 +191,9 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
 
   const watchField = <K extends keyof TMap>(
     key: K,
-    callback: (value: FormField<ExtractValue<TMap[K]>, ExtractMessage<TMap[K]>, ExtractLabel<TMap[K]>>) => void,
+    callback: (
+      value: FormField<ExtractValue<TMap[K]>, ExtractMessage<TMap[K]>, ExtractLabel<TMap[K]>>
+    ) => void,
     type: 'react' | 'native' = 'native'
   ) => {
     type s = FormField<ExtractValue<TMap[K]>, ExtractMessage<TMap[K]>, ExtractLabel<TMap[K]>>;
@@ -164,11 +206,10 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
             ($, t) => $.fields[t(key)].message,
             ($, t) => $.fields[t(key)].label,
             ($, t) => $.fields[t(key)].isTouched,
-            ($, t) => $.fields[t(key)].isFocused,
             ($, t) => $.fields[t(key)].isDirty,
           ],
-          ([value, isError, message, label, isTouched, isFocused, isDirty]) => {
-            callback({ value, isError, message, label, isTouched, isFocused, isDirty } as s);
+          ([value, isError, message, label, isTouched, isDirty]) => {
+            callback({ value, isError, message, label, isTouched, isDirty } as s);
           }
         );
       case 'native':
@@ -180,7 +221,6 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
               message: formStore.get(($, t) => $.fields[t(key)].message),
               label: formStore.get(($, t) => $.fields[t(key)].label),
               isTouched: formStore.get(($, t) => $.fields[t(key)].isTouched),
-              isFocused: formStore.get(($, t) => $.fields[t(key)].isFocused),
               isDirty: formStore.get(($, t) => $.fields[t(key)].isDirty),
             } as s),
           [
@@ -189,38 +229,54 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
             ($, t) => $.fields[t(key)].message,
             ($, t) => $.fields[t(key)].label,
             ($, t) => $.fields[t(key)].isTouched,
-            ($, t) => $.fields[t(key)].isFocused,
             ($, t) => $.fields[t(key)].isDirty,
           ]
         );
     }
   };
 
-  const onBlur = <K extends keyof TMap>(key: K) =>
-    handleFieldInteraction(key, 'isTouched', formStore, config.delayOnBlur);
-  const onFocus = <K extends keyof TMap>(key: K) =>
-    handleFieldInteraction(key, 'isFocused', formStore, config.delayOnBlur);
+  const onBlur = <K extends keyof TMap>(key: K) => {
+    formStore.update(($, t) => $.fields[t(key)].isTouched, true);
+    formStore.asyncUpdate.quiet(
+      ($, t) => $.fields[t(key)].isTouched,
+      async (_, signal) => {
+        await new Promise((res, rej) => {
+          const timeout = setTimeout(res, config.delayOnBlur ?? 1000);
+          signal.addEventListener('abort', () => {
+            clearTimeout(timeout);
+            rej(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+        return false;
+      },
+      { abortPrevious: true }
+    );
+  };
 
-  const useField = <R extends keyof TMap = never, K extends Exclude<keyof TMap, R> = Exclude<keyof TMap, R>>(
+  const useField = <
+    R extends keyof TMap = never,
+    K extends Exclude<keyof TMap, R> = Exclude<keyof TMap, R>
+  >(
     key: K
   ) => {
     type Value = ExtractValue<TMap[K]>;
     type Message = ExtractMessage<TMap[K]>;
     type Label = ExtractLabel<TMap[K]>;
 
-    const [value, isError, message, label, dataLabel, dataMessage, isTouched, isFocused, isDirty] = formStore.useStore([
-      ($, t) => $.fields[t(key)].value as Value,
-      ($, t) => $.fields[t(key)].isError,
-      ($, t) => $.fields[t(key)].message as Message,
-      ($, t) => $.fields[t(key)].label as Label,
-      ($, t) => $.fields[t(key)].dataLabel,
-      ($, t) => $.fields[t(key)].dataMessage,
-      ($, t) => $.fields[t(key)].isTouched,
-      ($, t) => $.fields[t(key)].isFocused,
-      ($, t) => $.fields[t(key)].isDirty,
-    ]);
+    const [value, isError, message, label, dataLabel, dataMessage, isTouched, isDirty] =
+      formStore.useStore([
+        ($, t) => $.fields[t(key)].value as Value,
+        ($, t) => $.fields[t(key)].isError,
+        ($, t) => $.fields[t(key)].message as Message,
+        ($, t) => $.fields[t(key)].label as Label,
+        ($, t) => $.fields[t(key)].dataLabel,
+        ($, t) => $.fields[t(key)].dataMessage,
+        ($, t) => $.fields[t(key)].isTouched,
+        ($, t) => $.fields[t(key)].isDirty,
+      ]);
 
-    const onChange = (e: React.ChangeEvent<HTMLInputElement>) => updateField(key, e.target.value as Value);
+    const onChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+      updateField(key, e.target.value as Value);
 
     onChange.setValue = (v: Value) => updateField(key, v);
 
@@ -229,7 +285,6 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
       isError,
       onChange,
       isTouched,
-      isFocused,
       isDirty,
       onBlur: () => onBlur(key),
       message: convertMessage<K, TMap>(message, value, dataMessage),
@@ -253,6 +308,5 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     getPortalData,
     addField,
     getField,
-    onFocus,
   };
 }

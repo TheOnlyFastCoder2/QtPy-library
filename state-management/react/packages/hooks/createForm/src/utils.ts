@@ -1,9 +1,7 @@
-import { ReactStore } from '@qtpy/state-management-react/types';
 import {
   ExtractLabel,
   ExtractMessage,
   ExtractValue,
-  FormStateFromMap,
   FormValueMap,
   MessageDataType,
   PortalTarget,
@@ -33,6 +31,7 @@ export function convertLabel<K extends keyof TMap, TMap extends FormValueMap>(
 
 export function runValidation<T, D>(validator: Validator<T, D>, value: T, data: D): boolean {
   if (typeof validator === 'function') return validator(value, data);
+  console.log(value, validator)
   return validator.test(String(value));
 }
 
@@ -49,28 +48,3 @@ export const getPath = (v: PortalTarget) => {
 
 export const convertData = (d: any) => (d === undefined ? null : d);
 
-export const handleFieldInteraction = <
-  TMap extends FormValueMap,
-  K extends keyof TMap,
->(
-  key: K,
-  propsKey: 'isTouched'|'isFocused',
-  formStore: ReactStore<FormStateFromMap<TMap>, 0>,
-  delayOn: number = 1000
-) => {
-  formStore.update(($, t) => $.fields[t(key)][propsKey], true);
-  formStore.asyncUpdate.quiet(
-    ($, t) => $.fields[t(key)].isTouched,
-    async (_, signal) => {
-      await new Promise((res, rej) => {
-        const timeout = setTimeout(res, delayOn);
-        signal.addEventListener('abort', () => {
-          clearTimeout(timeout);
-          rej(new DOMException('Aborted', 'AbortError'));
-        });
-      });
-      return false;
-    },
-    { abortPrevious: true }
-  );
-};

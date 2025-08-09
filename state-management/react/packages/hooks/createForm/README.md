@@ -15,8 +15,8 @@
    3.4 [Динамическое добавление полей с `addField`](#4-динамическое-добавление-полей-с-addfield)  
    3.5 [Получение данных поля с `getField`](#5-получение-данных-поля-с-getfield)  
    3.6 [Динамические данные с `setPortalData` и `getPortalData`](#6-динамические-данные-с-setportaldata-и-getportaldata)  
-   3.7 [JSX для меток и сообщений](#7-jsx-для-меток-и-сообщений)
-   3.8 [Обработка `onBlur` и `onFocus`](#обработка-onblur-и-onfocus)
+   3.7 [JSX для меток и сообщений](#7-jsx-для-меток-и-сообщений)  
+   3.8 [Обработка `onBlur`](#обработка-onblur-и-onfocus)  
 4. [Заключение](#заключение)
 
 ## Основные возможности библиотеки
@@ -128,7 +128,7 @@ import createForm from '@qtpy/react-stm-form';
 import { FormFieldClass } from '@qtpy/react-stm-form/types';
 
 class Username implements FormFieldClass {
-  type = 'string';
+  type: string;
   message = 'Некорректные символы';
   validate = /[a-zA-Zа-яА-Я]+$/;
   label(value: string) {
@@ -137,7 +137,7 @@ class Username implements FormFieldClass {
 }
 
 class Consent implements FormFieldClass {
-  type = 'boolean';
+  type: boolean;
   message = 'Требуется согласие';
   label = 'Согласие';
   validate = /^true$/;
@@ -433,14 +433,12 @@ const form = createForm<FormValueMap>({
     },
   },
   delayOnBlur: 1000, // время когда поменяется обратно на false
-  delayOnFocus: 4000, // время когда поменяется обратно на false
 });
 
 form.watchField('username', (field) => {
   console.log('Поле username:', {
     value: field.value,
     isTouched: field.isTouched,
-    isFocused: field.isFocused,
     isError: field.isError,
   });
 }
@@ -456,7 +454,6 @@ const Input = ({ name }: { name: keyof FormValueMap }) => {
       <input 
         onChange={field.onChange}
         onBlur={field.onBlur}
-        onFocus={field.onFocus} 
         value={field.value}
       />
       {field.isError && <p>{field.message}</p>}
