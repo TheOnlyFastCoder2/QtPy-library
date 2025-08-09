@@ -206,14 +206,6 @@ export function getStringPath<T extends object>(
     argName = args[0] || "$"; // Берем первый аргумент или "$" по умолчанию
   }
 
-  // Проверяем, что путь не содержит argName в середине или конце
-  const invalidArgNamePattern = new RegExp(`[^\\s].*\\${argName}`);
-  if (full.match(invalidArgNamePattern)) {
-    throw new Error(
-      `Недопустимый путь: "${full}". "${argName}" должен быть в начале пути, например: "(${argName}) => ${argName}.items.3"`
-    );
-  }
-
   // Убираем argName из начала пути, если он есть
   const argNamePrefix = `${argName}.`;
   const argNameIndex = full.indexOf(argNamePrefix);

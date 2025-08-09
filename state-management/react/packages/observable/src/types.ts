@@ -108,7 +108,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * setName("Alice");
    * setName.quiet("Bob");
    */
-  useField<const P extends PathOrError<T, string, D> | Accessor<T>>(
+  useField<const P extends PathOrAccessor<T, D>>(
     path: P,
     options?: { cacheKeys?: PathOrAccessor<T, D>[] }
   ): readonly [
@@ -129,7 +129,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * });
    */
   useEffect<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
+    const P extends readonly PathOrAccessor<T, D>[]
   >(
     paths: P,
     effect: (values: useStoreReturn<T, P, D>) => void,
@@ -145,7 +145,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * store.reloadComponents(["user", "count"]);
    */
   reloadComponents<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<T>)[]
+    const P extends readonly PathOrAccessor<T, D>[]
   >(
     cacheKeys: P
   ): void;

@@ -1,9 +1,9 @@
 {
-  "name": "@qtpy/stm-use-form",
-  "version": "0.0.10",
+  "name": "@qtpy/react-stm-form",
+  "version": "0.0.4",
   "author": "QtPy",
   "license": "MIT",
-  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/react/packages/hooks/useForm/README.md",
+  "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/react/packages/hooks/createForm/README.md",
   "main": "./dist/index.cjs",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -13,23 +13,32 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts"
     }
   },
   "files": [
     "dist"
   ],
   "keywords": [
-    "react useRefMap",
-    "react refs",
-    "dynamic refs",
-    "react scroll handling",
-    "imperative react",
-    "react DOM manipulation",
-    "typescript refs",
-    "react accordion"
+    "react form",
+    "form management",
+    "react hook form",
+    "dynamic form",
+    "form validation",
+    "typescript form",
+    "react state management",
+    "form state",
+    "react input handling",
+    "dynamic label",
+    "dynamic error message",
+    "react checkbox",
+    "form submission",
+    "react form validation"
   ],
   "dependencies": {
-    "@qtpy/state-management-react": ">=0.2.50",
+    "@qtpy/state-management-react": ">=0.2.56",
     "react": ">=18.0"
   },
   "scripts": {

@@ -7,6 +7,7 @@ export interface PopupProps {
   className?: string;
   isOnCloseBG?: boolean;
   domPortalById?: string;
+  eventCloseBG?: PopupEvent
 }
 
 export type PopupControl<T = any> = {
@@ -64,16 +65,16 @@ export default function usePopup<T = any>(delay: number = 0) {
   };
 
   // Базовый компонент Popup
-  const Popup = ({ children, className = '', isOnCloseBG = true, domPortalById = 'root' }: PopupProps) => {
+  const Popup = ({ children, className = '', isOnCloseBG = true, domPortalById = 'root', eventCloseBG = 'onClick' }: PopupProps) => {
     const overlays = document.getElementById(domPortalById) || document.body;
     const clIsVisible = isShowed ? 'isVisible' : '';
 
     return isShowed && overlays
       ? createPortal(
           <div
-            onClick={isOnCloseBG ? handleClickOverlay : undefined}
-            className={`Popup ${className} ${clIsVisible}`}
-            ref={refContainer}
+          className={ `Popup ${className} ${clIsVisible}` }
+          ref={ refContainer }
+          {...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined } }
           >
             <div className="Popup_container">{children}</div>
           </div>,
@@ -120,3 +121,26 @@ export default function usePopup<T = any>(delay: number = 0) {
     };
   }, [isShowed]);
 }
+
+type PopupEvent =
+  | 'onClick'
+  | 'onMouseDown'
+  | 'onMouseUp'
+  | 'onContextMenu'
+  | 'onDoubleClick'
+  | 'onMouseEnter'
+  | 'onMouseLeave'
+  | 'onMouseMove'
+  | 'onKeyDown'
+  | 'onKeyUp'
+  | 'onKeyPress'
+  | 'onTouchStart'
+  | 'onTouchEnd'
+  | 'onTouchCancel'
+  | 'onTouchMove'
+  | 'onFocus'
+  | 'onBlur'
+  | 'onWheel'
+  | 'onPointerDown'
+  | 'onPointerUp'
+  | 'onPointerCancel';
