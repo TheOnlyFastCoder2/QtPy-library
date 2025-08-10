@@ -31,7 +31,6 @@ export function convertLabel<K extends keyof TMap, TMap extends FormValueMap>(
 
 export function runValidation<T, D>(validator: Validator<T, D>, value: T, data: D): boolean {
   if (typeof validator === 'function') return validator(value, data);
-  console.log(value, validator)
   return validator.test(String(value));
 }
 

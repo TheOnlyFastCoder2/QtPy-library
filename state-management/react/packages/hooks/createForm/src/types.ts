@@ -1,4 +1,3 @@
-
 export type ExtractValue<T> = T extends { type: infer V } ? V : never;
 export type ExtractLabel<T> = T extends { label: infer L } ? L : never;
 export type ExtractMessage<T> = T extends { message: infer M } ? M : never;
@@ -7,7 +6,6 @@ export type MessageDataType<T> = ExtractMessage<T> extends (value: any, data: in
   : null;
 
 export type Validator<T, D = any> = RegExp | ((value: T, data: D) => boolean);
-
 
 export type FormField<TValue, TMessage, TLabel> = {
   value: TValue;
@@ -98,3 +96,65 @@ export type KeyPattern<TPrefix extends string> = `${TPrefix}_${number}`;
 export type IsExclude<T extends PropertyKey, R = never> = R extends never ? T : Exclude<T, R>;
 export type PortalTarget = 'message' | 'label' | 'validate';
 
+export type DebouncedFn<TArgs extends any[] = any[]> = ((...args: TArgs) => void) & {
+  cancel: () => void;
+};
+
+export type DebounceCreator = <TArgs extends any[]>(
+  callback: (...args: TArgs) => void,
+  delay: number
+) => DebouncedFn<TArgs>;
+
+export interface CreateFormReturn<TMap extends FormValueMap> {
+  onSubmit: (callback: (formData: FormDataFromMap<TMap>) => void | Promise<void>) => void;
+
+  handleSubmit: (event?: React.MouseEvent<HTMLElement, MouseEvent>) => void;
+
+  resetForm: () => void;
+
+  watchField: <K extends keyof TMap>(
+    key: K,
+    callback: (
+      value: FormField<ExtractValue<TMap[K]>, ExtractMessage<TMap[K]>, ExtractLabel<TMap[K]>>
+    ) => void,
+    type?: 'react' | 'native'
+  ) => void | (() => void);
+
+  useField: <
+    R extends keyof TMap = never,
+    K extends Exclude<keyof TMap, R> = Exclude<keyof TMap, R>
+  >(
+    key: K
+  ) => {
+    value: ExtractValue<TMap[K]>;
+    isError: boolean;
+    onChange: {
+      (e: React.ChangeEvent<HTMLInputElement>): void;
+      setValue(v: ExtractValue<TMap[K]>): void;
+    };
+
+    isTouched: boolean;
+    isDirty: boolean;
+    onBlur: () => void;
+    message: string | React.JSX.Element;
+    label: string | React.JSX.Element;
+  };
+
+  useFormStatus: () => { isValid: boolean; isSubmitted: boolean };
+
+  setPortalData: {
+    <K extends keyof TMap>(key: K, to: PortalTarget, data: MessageDataType<TMap[K]>): void;
+    quiet: <K extends keyof TMap>(key: K, to: PortalTarget, data: MessageDataType<TMap[K]>) => void;
+  };
+
+  getPortalData: <K extends keyof TMap>(key: K, from: PortalTarget) => MessageDataType<TMap[K]>;
+
+  addField: <K extends keyof TMap>(
+    key: K,
+    config: FormFieldClass<ExtractValue<TMap[K]>, ExtractLabel<TMap[K]>, ExtractMessage<TMap[K]>>
+  ) => void;
+
+  getField: <K extends keyof TMap>(key: K) => TMap[K];
+
+  debounced: DebounceCreator;
+}

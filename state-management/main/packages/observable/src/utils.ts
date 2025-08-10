@@ -131,7 +131,7 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
   // Убираем двойные точки и ведущую точку
   const noDoubleDots = replacedPath.replace(/\.\./g, '.');
   const normalized = noDoubleDots.startsWith('.') ? noDoubleDots.slice(1) : noDoubleDots;
-  console.log(normalized);
+
   return normalized as SafePaths<T, D>;
 }
 /**

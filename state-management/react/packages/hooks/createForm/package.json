@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/react-stm-form",
-  "version": "0.0.7",
+  "version": "0.0.13",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/react/packages/hooks/createForm/README.md",
@@ -38,7 +38,7 @@
     "react form validation"
   ],
   "dependencies": {
-    "@qtpy/state-management-react": ">=0.2.56",
+    "@qtpy/state-management-react": ">=0.2.58",
     "react": ">=18.0"
   },
   "scripts": {

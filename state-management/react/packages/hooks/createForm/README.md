@@ -16,8 +16,11 @@
    3.5 [Получение данных поля с `getField`](#5-получение-данных-поля-с-getfield)  
    3.6 [Динамические данные с `setPortalData` и `getPortalData`](#6-динамические-данные-с-setportaldata-и-getportaldata)  
    3.7 [JSX для меток и сообщений](#7-jsx-для-меток-и-сообщений)  
-   3.8 [Обработка `onBlur`](#обработка-onblur-и-onfocus)  
-4. [Заключение](#заключение)
+   3.8 [Обработка `onBlur`](#обработка-onblur-и-onfocus) 
+
+4. [Пример с асинхронной валидацией и debounced](#пример-с-асинхронной-валидацией-и-debounced)  
+
+5. [Заключение](#заключение)
 
 ## Основные возможности библиотеки
 
@@ -466,6 +469,63 @@ const App = () => (
     <Input name="username" />
   </div>
 );
+```
+
+### Пример с асинхронной валидацией и debounced
+
+Простой пример формы с полем для номера телефона, где валидация выполняется асинхронно с debounced-задержкой.
+
+```tsx
+import createForm from '@qtpy/react-stm-form';
+import { FormFieldClass, CreateFormReturn, DebouncedFn } from '@qtpy/react-stm-form/types';
+
+
+class Phone implements FormFieldClass {
+  type: string = 'string';
+  label: string = 'Телефон';
+  message: string = 'Проверяем...';
+  prevValue: string = '';
+  debounced!: DebouncedFn<[string, boolean]>;
+  form?: CreateFormReturn<FormValueMap>;
+
+  init = (form: CreateFormReturn<FormValueMap>) => {
+    this.form = form;
+    this.debounced = form.debounced(async (value: string, isValid:boolean) => {
+      // Имитация асинхронного запроса (3 секунды)
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      this.prevValue = value;
+      this.message = isValid ? 'Валидно!' : 'Только цифры!';
+      console.log(`Проверено: ${value}`);
+    }, 1000); // Задержка 1 секунда
+  };
+
+  validate(value: string) {
+    const isValid = /^\d+$/.test(this.prevValue);
+    this.debounced(value, isValid);
+    return isValid;
+  }
+}
+
+type FormValueMap = {
+  phone: Phone;
+};
+
+
+const form = createForm<FormValueMap>({
+  fields: { phone: new Phone() },
+});
+
+form.getField('phone').init(form) // передаем нашу форму
+
+const App = () => (
+  <div>
+    <h1>Асинхронная форма</h1>
+    <Input name="phone" />
+    <button onClick={form.handleSubmit}>Отправить</button>
+  </div>
+);
+
+export default App;
 ```
 
 **Суть**:

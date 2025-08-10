@@ -1,6 +1,7 @@
 import { createReactStore } from '@qtpy/state-management-react';
 import React from 'react';
 import {
+  CreateFormReturn,
   ExtractLabel,
   ExtractMessage,
   ExtractValue,
@@ -15,15 +16,17 @@ import {
 } from './types';
 import { runValidation, getPath, convertData, convertMessage, convertLabel } from './utils';
 
-export default function createForm<TMap extends FormValueMap>(config: FormConfigFromMap<TMap>) {
+export default function createForm<TMap extends FormValueMap>(config: FormConfigFromMap<TMap>):CreateFormReturn<TMap> {
   const formStore = createReactStore<FormStateFromMap<TMap>>({
     fields: Object.entries(config.fields).reduce(
-      (acc, [key, field]) => ({
+      (acc, [key, field]) => { 
+        return ({
         ...acc,
         [key]: {
+          ...field,
           label: field.label,
           validate:
-            typeof field.validate === 'function' ? field.validate.bind(field) : field.validate, // Поддержка RegExp или функции
+            typeof field.validate === 'function' ? field.validate.bind(field) : field.validate, 
           message: field.message,
           value: field.initialValue ?? '',
           isError:
@@ -38,7 +41,8 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
           isDirty: false,
           initialValue: field.initialValue ?? '',
         },
-      }),
+      })
+      },
       {} as FormStateFromMap<TMap>['fields']
     ),
     isValid: false,
@@ -159,15 +163,16 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     key: K,
     config: FormFieldClass<ExtractValue<TMap[K]>, ExtractLabel<TMap[K]>, ExtractMessage<TMap[K]>>
   ) => {
-    const initialValue = config.initialValue ?? ('' as ExtractValue<TMap[K]>); // Устанавливаем значение по умолчанию
+    const initialValue = config.initialValue ?? ('' as ExtractValue<TMap[K]>); 
     formStore.update(
       ($) => $.fields,
       (fields) => {
         fields[key] = {
+          ...config,
           label: config.label,
           message: config.message,
           validate:
-            typeof config.validate === 'function' ? config.validate.bind(config) : config.validate, // Поддержка RegExp или функции
+            typeof config.validate === 'function' ? config.validate.bind(config) : config.validate,
           value: initialValue,
           isError:
             initialValue !== undefined
@@ -185,8 +190,8 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     );
   };
 
-  const getField = <K extends keyof TMap>(key: K) => {
-    return formStore.get(($, t) => $.fields[t(key)]);
+  const getField = <K extends keyof TMap>(key: K): TMap[K] => {
+    return formStore.get(($, t) => $.fields[t(key)])  as unknown as TMap[K];
   };
 
   const watchField = <K extends keyof TMap>(
@@ -308,5 +313,6 @@ export default function createForm<TMap extends FormValueMap>(config: FormConfig
     getPortalData,
     addField,
     getField,
+    debounced:formStore.debounced
   };
 }
