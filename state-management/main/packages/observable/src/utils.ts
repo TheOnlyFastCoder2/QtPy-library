@@ -1,14 +1,5 @@
 // utils.tsx
-import {
-  Accessor,
-  PathOrAccessor,
-  ObservableStore,
-  MaxDepth,
-  SafePaths,
-  MetaData,
-  MetaWeakMap,
-} from "./types";
-
+import { Accessor, PathOrAccessor, ObservableStore, MaxDepth, SafePaths, MetaData, MetaWeakMap } from './types';
 
 // Вспомогательная функция для извлечения аргументов
 function extractArgs(funcStr: string): string[] {
@@ -31,15 +22,12 @@ function extractArgs(funcStr: string): string[] {
  *   - (u, helper) => u.arr[helper(0)]
  * @returns Строка вида "foo.123.456" или "arr.0"
  */
-export function getStringOfObject<T, D extends number = MaxDepth>(
-  store: T,
-  fn: Accessor<T>
-): SafePaths<T, D> {
+export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: Accessor<T>): SafePaths<T, D> {
   const fnString = fn.toString().trim();
   const args = extractArgs(fnString);
 
   // Экранируем имена аргументов для использования в RegExp
-  const escapedArgs = args.map(arg => arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const escapedArgs = args.map((arg) => arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
   // Формируем регулярное выражение для разбора стрелочной функции
   const arrowMatch = fnString.match(
@@ -49,31 +37,31 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
   );
 
   if (!arrowMatch) {
-    throw new Error("Invalid function format");
+    throw new Error('Invalid function format');
   }
 
   let rawExpr = arrowMatch[1].trim();
 
   // Убираем внешние скобки, если они есть
-  if (rawExpr.startsWith("(") && rawExpr.endsWith(")")) {
+  if (rawExpr.startsWith('(') && rawExpr.endsWith(')')) {
     rawExpr = rawExpr.slice(1, -1).trim();
   }
 
   // Убираем пробелы и переносы строк
-  let compactPath = rawExpr.replace(/\s+/g, "");
+  let compactPath = rawExpr.replace(/\s+/g, '');
 
   // Разбиваем конструкции вида [expr1,expr2] на [expr1][expr2]
   const commaInBracket = /\[([^\[\]]+),([^\[\]]+)\]/;
   while (commaInBracket.test(compactPath)) {
-    compactPath = compactPath.replace(/\[([^\[\]]+),([^\[\]]+)\]/g, "[$1][$2]");
+    compactPath = compactPath.replace(/\[([^\[\]]+),([^\[\]]+)\]/g, '[$1][$2]');
   }
 
   // Если второго аргумента нет, используем статическую обработку
   if (args.length < 2) {
     let staticPath = compactPath
-      .replace(/\[['"]([\w$]+)['"]\]/g, ".$1") // ['foo'] → .foo
-      .replace(/\[([\w$]+)\]/g, ".$1"); // [123] или [foo] → .123 / .foo
-    if (staticPath.startsWith(".")) {
+      .replace(/\[['"]([\w$]+)['"]\]/g, '.$1') // ['foo'] → .foo
+      .replace(/\[([\w$]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
+    if (staticPath.startsWith('.')) {
       staticPath = staticPath.slice(1);
     }
     return staticPath as SafePaths<T, D>;
@@ -90,9 +78,9 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
   // Если нет вызовов второго аргумента, обрабатываем статические индексы
   if (!tCallSimple.test(compactPath)) {
     let staticPath = compactPath
-      .replace(/\[['"]([\w$]+)['"]\]/g, ".$1") // ['foo'] → .foo
-      .replace(/\[([\w$]+)\]/g, ".$1"); // [123] или [foo] → .123 / .foo
-    if (staticPath.startsWith(".")) {
+      .replace(/\[['"]([\w$]+)['"]\]/g, '.$1') // ['foo'] → .foo
+      .replace(/\[([\w$]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
+    if (staticPath.startsWith('.')) {
       staticPath = staticPath.slice(1);
     }
     return staticPath as SafePaths<T, D>;
@@ -134,40 +122,29 @@ export function getStringOfObject<T, D extends number = MaxDepth>(
   // Заменяем каждый вызов второго аргумента на соответствующее значение
   let replacedPath = compactPath.replace(tCallGlobal, (_all, expr) => {
     const v = nameToValue[expr];
-    return v === undefined ? "undefined" : String(v);
+    return v === undefined ? 'undefined' : String(v);
   });
 
   // Обрабатываем статические индексы: ['foo'] → .foo, [123] → .123
-  replacedPath = replacedPath
-    .replace(/\[['"]([\w$]+)['"]\]/g, ".$1")
-    .replace(/\[([\w$]+)\]/g, ".$1");
+  replacedPath = replacedPath.replace(/\[['"]([\w$]+)['"]\]/g, '.$1').replace(/\[([\w$]+)\]/g, '.$1');
 
   // Убираем двойные точки и ведущую точку
-  const noDoubleDots = replacedPath.replace(/\.\./g, ".");
-  const normalized = noDoubleDots.startsWith(".")
-    ? noDoubleDots.slice(1)
-    : noDoubleDots;
-
+  const noDoubleDots = replacedPath.replace(/\.\./g, '.');
+  const normalized = noDoubleDots.startsWith('.') ? noDoubleDots.slice(1) : noDoubleDots;
+  console.log(normalized);
   return normalized as SafePaths<T, D>;
 }
 /**
  * Проверяет, является ли «путь» валидным (строка или Accessor-функция).
  * Если нет — бросает ошибку.
  */
-export function validatePath(
-  path: unknown
-): asserts path is string | Accessor<any> {
-  const isString = typeof path === "string";
-  const isFunction = typeof path === "function";
+export function validatePath(path: unknown): asserts path is string | Accessor<any> {
+  const isString = typeof path === 'string';
+  const isFunction = typeof path === 'function';
   if (!isString && !isFunction) {
-    const receivedType = path === null ? "null" : typeof path;
-    const receivedInfo =
-      typeof path === "object"
-        ? JSON.stringify(Object.keys(path))
-        : String(path);
-    throw new Error(
-      `[store] Ожидался путь (строка или функция-доступ), получено: ${receivedType} (${receivedInfo}).`
-    );
+    const receivedType = path === null ? 'null' : typeof path;
+    const receivedInfo = typeof path === 'object' ? JSON.stringify(Object.keys(path)) : String(path);
+    throw new Error(`[store] Ожидался путь (строка или функция-доступ), получено: ${receivedType} (${receivedInfo}).`);
   }
 }
 
@@ -187,23 +164,20 @@ export function validatePath(
  *
  * @param path Строка или Accessor-функция
  */
-export function getStringPath<T extends object>(
-  store: T,
-  path: string | Accessor<any>
-): string {
+export function getStringPath<T extends object>(store: T, path: string | Accessor<any>): string {
   let full: string;
-  if (typeof path === "string") {
+  if (typeof path === 'string') {
     full = path;
   } else {
     full = getStringOfObject<T>(store, path) as any;
   }
 
   // Извлекаем имя первого аргумента из функции, если path — функция
-  let argName = "$"; // По умолчанию, если path — строка
-  if (typeof path !== "string") {
+  let argName = '$'; // По умолчанию, если path — строка
+  if (typeof path !== 'string') {
     const fnString = path.toString().trim();
     const args = extractArgs(fnString);
-    argName = args[0] || "$"; // Берем первый аргумент или "$" по умолчанию
+    argName = args[0] || '$'; // Берем первый аргумент или "$" по умолчанию
   }
 
   // Убираем argName из начала пути, если он есть
@@ -232,15 +206,15 @@ export function normalizeCacheKey<T, D extends number = MaxDepth>(
     //@ts-ignore
     return cacheKey
       .map((key) => normalizeCacheKey<T, D>(key, store))
-      .filter((s) => s !== "")
-      .join(".");
+      .filter((s) => s !== '')
+      .join('.');
   }
 
-  if (typeof cacheKey === "function") {
+  if (typeof cacheKey === 'function') {
     return getStringPath(store, cacheKey as Accessor<any>);
   }
 
-  return cacheKey == null ? "" : String(cacheKey);
+  return cacheKey == null ? '' : String(cacheKey);
 }
 
 /**
@@ -253,7 +227,7 @@ export function shallowEqual(a: any, b: any): boolean {
   if (a instanceof Date && b instanceof Date) {
     return a.getTime() === b.getTime();
   }
-  if (typeof a !== "object") return false;
+  if (typeof a !== 'object') return false;
   const keysA = Object.keys(a);
   const keysB = Object.keys(b);
   if (keysA.length !== keysB.length) return false;
@@ -271,18 +245,18 @@ export function shallowEqual(a: any, b: any): boolean {
  * Например, "a.b.0.c" → ["a", "b", 0, "c"]
  */
 export function splitPath(path: string): (string | number)[] {
-  return path.split(".").map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg));
+  return path.split('.').map((seg) => (/^\d+$/.test(seg) ? Number(seg) : seg));
 }
 // isMethodsOfArray
 export function isArrayMethod(name: string, names: string[] = []) {
   switch (name) {
-    case "push":
-    case "pop":
-    case "splice":
-    case "shift":
-    case "unshift":
-    case "sort":
-    case "reverse":
+    case 'push':
+    case 'pop':
+    case 'splice':
+    case 'shift':
+    case 'unshift':
+    case 'sort':
+    case 'reverse':
       return !names.length || names.includes(name);
   }
   return false;
@@ -344,7 +318,7 @@ export function stringify(root: any): string {
   while (stack.length > 0) {
     const current = stack.pop()!;
 
-    if (typeof current === "string") {
+    if (typeof current === 'string') {
       out.push(current);
       continue;
     }
@@ -352,11 +326,11 @@ export function stringify(root: any): string {
     let { value, parentIsArray } = current;
 
     // Обработка примитивов
-    if (value == null || typeof value !== "object") {
+    if (value == null || typeof value !== 'object') {
       if (value === undefined) {
-        out.push(parentIsArray ? "null" : "");
-      } else if (typeof value === "number") {
-        out.push(isFinite(value) ? value.toString() : "null");
+        out.push(parentIsArray ? 'null' : '');
+      } else if (typeof value === 'number') {
+        out.push(isFinite(value) ? value.toString() : 'null');
       } else {
         out.push(JSON.stringify(value));
       }
@@ -373,31 +347,35 @@ export function stringify(root: any): string {
     // Обработка массивов и объектов
     if (Array.isArray(value)) {
       if (value.length === 0) {
-        out.push("[]");
+        out.push('[]');
         continue;
       }
-      stack.push("]");
+      stack.push(']');
       for (let i = value.length - 1; i >= 0; i--) {
         stack.push({ value: value[i], parentIsArray: true });
-        if (i > 0) stack.push(",");
+        if (i > 0) stack.push(',');
       }
-      stack.push("[");
+      stack.push('[');
     } else {
       const keys = Object.keys(value);
       if (keys.length === 0) {
-        out.push("{}");
+        out.push('{}');
         continue;
       }
-      stack.push("}");
+      stack.push('}');
       for (let i = keys.length - 1; i >= 0; i--) {
         const key = keys[i];
         stack.push({ value: value[key] });
         stack.push(`"${key}":`);
-        if (i > 0) stack.push(",");
+        if (i > 0) stack.push(',');
       }
-      stack.push("{");
+      stack.push('{');
     }
   }
 
-  return out.join("");
+  return out.join('');
+}
+
+export function detRandomId() {
+  return `${Math.floor(performance.now()).toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }

@@ -27,7 +27,8 @@
 
 4. [Асинхронные обновления](#асинхронные-обновления)  
    4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
-   4.2. [`store.cancelAsyncUpdates(pathOrAccessor?)`](#storecancelasyncupdatespathoraccessor)
+   4.2. [`store.cancelAsyncUpdates(pathOrAccessor?)`](#storecancelasyncupdatespathoraccessor)  
+   4.3. [`store.debounced(callback, delay)`](#storedebouncedcallback-delay)
 
 5. [Батчинг (`store.batch`)](#батчинг-storebatch)
 
@@ -405,6 +406,35 @@ console.log('Будет следующий counter:', nextCounter);
 ---
 
 ## Асинхронные обновления
+
+### `store.debounced(callback, delay)`
+Метод debounced создаёт функцию с отложенным вызовом, которая будет выполнена только после паузы между последовательными вызовами. Это особенно полезно для асинхронных операций, таких как HTTP-запросы, где важно избегать лишней нагрузки и отменять устаревшие запросы.
+
+**Пример использования:**
+
+```ts
+type DepthPath = 1;
+const debouncedFetchItems = store.debounced(
+  (path: PathOrAccessor<StoreState, DepthPath>, userId: number) => {
+    store.asyncUpdate(
+      path,
+      async (currentItems, signal) => {
+        const response = await fetch(`/api/items?user=${userId}`, { signal });
+        const data = await response.json();
+        return data.list;
+      },
+      { abortPrevious: true }
+    );
+  },
+  1000 // задержка 1 секунда
+);
+
+// Использование
+debouncedFetchItems('items', 123);
+debouncedFetchItems('items', 456);
+debouncedFetchItems.cancel();
+debouncedFetchItems(($) => $.items, 452363); 
+```
 
 ### `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
 

@@ -8,6 +8,8 @@ import {
   Accessor,
   MetaData,
   PathLimitEntry,
+  ValueOrFn,
+  ExtractPathReturn,
 } from './types';
 import {
   normalizeCacheKey,
@@ -20,6 +22,7 @@ import {
   setMetaData,
   withMetaSupport,
   calculateSnapshotHash,
+  detRandomId,
 } from './utils';
 
 class HistoryManager<T extends object, D extends number = 0> {
@@ -158,6 +161,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
   const aborters = new Map<string, AbortController>();
   const batchedInvalidations = new Set<string>();
+  const debounceTimers = new Map<string, NodeJS.Timeout>();
 
   const currentPending = () => pendingStack[pendingStack.length - 1];
 
@@ -368,6 +372,31 @@ export function createObservableStore<T extends object, D extends number = 0>(
     store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
+  store.debounced = (callback: (...args: any[]) => void, delay: number): ((...args: any[]) => void) => {
+    const debounceId = detRandomId();
+    let timer: NodeJS.Timeout | null = null;
+    const debouncedFn = (...args: any[]) => {
+      if (timer) {
+        clearTimeout(timer);
+      }
+
+      timer = setTimeout(() => {
+        callback(...args);
+        debounceTimers.delete(debounceId);
+      }, delay);
+      debounceTimers.set(debounceId, timer);
+    };
+
+    debouncedFn.cancel = () => {
+      if (timer) {
+        clearTimeout(timer);
+        debounceTimers.delete(debounceId);
+      }
+    };
+
+    return debouncedFn;
+  };
+
   function commit(pending: Map<string, any>) {
     const changedPaths: string[] = [];
 
@@ -415,7 +444,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
     options: { abortPrevious?: boolean; keepQuiet: boolean }
   ) => {
-    const { abortPrevious = false, keepQuiet = false } = options;
+    const { abortPrevious = false, keepQuiet = false } = options ?? {};
     validatePath(pathOrAccessor);
     const pathStr = resolve(pathOrAccessor);
     if (abortPrevious) {
@@ -450,6 +479,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       aborters.delete(pathStr);
     }
   };
+
   store.asyncUpdate.quiet = async (
     pathOrAccessor: string | (() => any),
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
@@ -621,6 +651,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
     subscribers.clear();
     pathSubscribers.clear();
     aborters.clear();
+    debounceTimers.forEach((timer) => clearTimeout(timer));
+    debounceTimers.clear();
     store.clearAllHistory();
   };
 
@@ -636,6 +668,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     pathSubscribersCount: pathSubscribers.size,
     historyEntries: historyMgr.getEntries(),
     activePathsCount: pathSubscribers.size,
+    debounceTimersCount: debounceTimers.size,
   });
 
   let wrappedUpdate = store.update;

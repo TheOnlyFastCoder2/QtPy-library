@@ -257,7 +257,7 @@ export type CacheKeys<T, P extends readonly PathOrAccessor<T, D>[], D extends nu
     : never;
 };
 
-export type PathOrAccessor<T, D extends number> = PathOrError<T, string, D> | Accessor<T, any>;
+export type PathOrAccessor<T, D extends number = MaxDepth> = PathOrError<T, string, D> | Accessor<T, any>;
 
 /**
  * Колбэк для подписки на изменения.
@@ -382,7 +382,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
     <const P extends PathOrAccessor<T, D>>(
       path: P,
       valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>,
-      option?: { keepQuiet?: boolean }
+      options?: { keepQuiet?: boolean }
     ): void;
     /**
      * Обновить значение без уведомлений подписок.
@@ -391,6 +391,15 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
      */
     quiet: <const P extends PathOrAccessor<T, D>>(path: P, valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>) => void;
   };
+
+  /**
+   * Создаёт отложенный вызов функции с debounce.
+   * @param callback - Функция, которая будет вызвана с задержкой, принимающая произвольные аргументы.
+   * @param delay - Задержка в миллисекундах перед выполнением callback.
+   * @returns Функция, которая принимает аргументы для callback и выполняет его с задержкой.
+   *          Содержит метод `cancel` для отмены отложенного вызова.
+   */
+  debounced<T extends any[]>(callback: (...args: T) => void, delay: number): ((...args: T) => void) & { cancel: () => void };
 
   /**
    * Вычислить новое значение без его установки по строковому пути.
@@ -425,7 +434,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
     <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
       asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
-      options?: { abortPrevious?: boolean, keepQuiet?: boolean}
+      options?: { abortPrevious?: boolean; keepQuiet?: boolean }
     ): Promise<void>;
 
     quiet: <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
