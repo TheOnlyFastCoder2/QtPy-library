@@ -7,7 +7,7 @@ export interface PopupProps {
   className?: string;
   isOnCloseBG?: boolean;
   domPortalById?: string;
-  eventCloseBG?: PopupEvent
+  eventCloseBG?: PopupEvent;
 }
 
 export type PopupControl<T = any> = {
@@ -34,7 +34,6 @@ export default function usePopup<T = any>(delay: number = 0) {
     }, delay * 1000);
   };
 
-
   useEffect(() => {
     return () => {
       clearTimeout(refTimeId.current as NodeJS.Timeout);
@@ -51,7 +50,9 @@ export default function usePopup<T = any>(delay: number = 0) {
 
   const showWithData = (data: T) => {
     if (!isShowed) setIsShowed(true);
-    refPortalData.current?.setData?.(data);
+    setTimeout(() => {
+      refPortalData.current?.setData?.(data);
+    }, 10);
   };
 
   const toTogglePopup = () => {
@@ -65,16 +66,22 @@ export default function usePopup<T = any>(delay: number = 0) {
   };
 
   // Базовый компонент Popup
-  const Popup = ({ children, className = '', isOnCloseBG = true, domPortalById = 'root', eventCloseBG = 'onClick' }: PopupProps) => {
+  const Popup = ({
+    children,
+    className = '',
+    isOnCloseBG = true,
+    domPortalById = 'root',
+    eventCloseBG = 'onClick',
+  }: PopupProps) => {
     const overlays = document.getElementById(domPortalById) || document.body;
     const clIsVisible = isShowed ? 'isVisible' : '';
 
     return isShowed && overlays
       ? createPortal(
           <div
-          className={ `Popup ${className} ${clIsVisible}` }
-          ref={ refContainer }
-          {...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined } }
+            className={`Popup ${className} ${clIsVisible}`}
+            ref={refContainer}
+            {...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined }}
           >
             <div className="Popup_container">{children}</div>
           </div>,

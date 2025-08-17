@@ -25,7 +25,7 @@
 
 ## Основная идея и архитектура
 
-`createReactStore` — это обёртка над [`@qtpy/state-management-observable`](https://www.npmjs.com/package/@qtpy/state-management-observable), адаптированная для React. Она создаёт хранилище, использующее под капотом прокси и middleware, и предоставляет удобные React-хуки:
+`createReactStore` — это обёртка над [`@qtpy/state-management-observable`](https://www.npmjs.com/package/@qtpy/state-management-observable), Адаптирована для React. Создаёт хранилище, которое одновременно использует `систему подписок` и `систему Proxy`. Эти системы работают параллельно и независимо друг от друга — подписки не связаны с Proxy. Хранилище предоставляет удобные React-хуки для взаимодействия с состоянием.
 
 ### Как устроены подписки и хуки
 
@@ -51,7 +51,8 @@
 Инвалидирует указанные `cacheKeys`, чтобы подписанные компоненты перерисовались.
 
 ```ts
-store.reloadComponents(["user.preferences.theme"]);
+store.reloadComponents(["user.preferences.theme"]); // через строковый путь
+store.reloadComponents([($) => $.user.preferences.theme]); // через селектор
 ```
 
 ---
@@ -64,7 +65,9 @@ store.reloadComponents(["user.preferences.theme"]);
 - `options.cacheKeys?` — опциональные ключи кеша для ручной инвалидизации.
 
 ```tsx
-const [name, age] = userStore.useStore(["user.name", "user.age"]);
+const [name, age] = userStore.useStore(["user.name", "user.age"]); 
+// или через селектор
+const [name, age] = userStore.useStore([($) => $.user.name, ($) => $.user.age]); 
 ```
 
 ---
@@ -75,6 +78,8 @@ const [name, age] = userStore.useStore(["user.name", "user.age"]);
 
 ```tsx
 const [count, setCount] = counterStore.useField("counter.value");
+// или через селектор
+const [count, setCount] = counterStore.useField(($) => counter.value);
 
 setCount(42); // обычное обновление
 setCount.quiet(43); // тихое обновление (без ререндеров)
@@ -88,6 +93,10 @@ setCount.quiet(43); // тихое обновление (без ререндер�
 
 ```tsx
 userStore.useEffect(["user.age"], ([age]) => {
+  console.log("Возраст изменился:", age);
+});
+// или через селектор
+userStore.useEffect([($) => $.user.age], ([age]) => {
   console.log("Возраст изменился:", age);
 });
 ```
@@ -216,6 +225,7 @@ export const moveTile = (row: number, col: number) => {
     // 2) Меняем местами значения в board
     const tileValue = board[row][col]!;
     puzzleStore.update(`board.${row}.${col}`, null);
+    // или через селектор
     puzzleStore.update(
       ($, t) => $.board[t(empty.row)][t(empty.col)],
       tileValue

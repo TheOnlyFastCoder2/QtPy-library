@@ -33,12 +33,12 @@
 5. [Батчинг (`store.batch`)](#батчинг-storebatch)
 
 6. [История (undo/redo)](#история-undoredo)  
-   6.1. [`store.undo(pathOrAccessor)`](#storeundopathoraccessor)  
-   6.2. [`store.redo(pathOrAccessor)`](#storeredopathoraccessor)  
+   6.1. [`store.undo(pathOrAccessor, spliceIndices?)`](#storeundopathoraccessor-spliceindices)  
+   6.2. [`store.redo(pathOrAccessor, spliceIndices?)`](#storeredopathoraccessor-spliceindices)  
    6.4. [`store.getUndo(pathOrAccessor, step)`](#storegetundopathoraccessor-step)  
    6.3. [`store.getRedo(pathOrAccessor, step)`](#storegetredopathoraccessor-step)  
    6.5. [`store.getHistory(pathOrAccessor)`](#storegetHistorypathoraccessor)  
-   6.6. [`store.clearHistoryPath(pathOrAccessor)`](#storeclearHistoryPathpathoraccessor)  
+   6.6. [`store.clearHistoryPath(pathOrAccessor, mode?, spliceIndices?)`](#storeclearhistorypathpathoraccessor-mode-spliceindices)  
    6.7. [`store.clearAllHistory()`](#storeclearAllHistory)
 
 7. [Статистика и очистка](#статистика-и-очистка)  
@@ -152,7 +152,7 @@ const initialState = {
   counter: 0,
 };
 // 3) Глубина тип поиска строковых путей
-type DepthPath = 14;
+type DepthPath = 3;
 // 3) Пример middleware: простой логгер перед и после update
 const loggerMiddleware: Middleware<StoreState, DepthPath> = (store, next) => {
   return (path, value) => {
@@ -170,18 +170,13 @@ export const store = createObservableStore<StoreState, DepthPath>(
     customLimitsHistory: [
       // Для свойства counter сохраняем до 3 предыдущих состояний
       ['counter', 3],
-      // Для locale — до 2 состояний
       ['user.settings.locale', 2],
-      // Для 4-го элемента массива items через аксцессор — до 3 состояний
+      ['items.2', 3],
       [($) => $.items[3], 3],
-      // Для всего массива items — до 3 состояний
       [($) => $.items, 3],
     ],
   }
 );
-
-// Теперь при вызове store.update(...) или при прямой записи в store.state
-// сработают middleware и, при изменении, уведомятся подписчики.
 ```
 
 ## API `createObservableStore`
@@ -261,6 +256,7 @@ subscribeToPath позволяет подписаться на изменени�
   ```ts
   // Если где-то в логике нужно форсировать оповещение по подписчикам, полагающимся на cacheKey:
   store.invalidate('user.settings.theme');
+  store.invalidate(($) => $.user.settings.scheme);
   ```
 
 ---
@@ -549,38 +545,36 @@ const store = createObservableStore<AppState, DepthPath>(initialState, [], {
 
 - **Важно:** история не реагирует на косвенные изменения массивов через методы (например, `store.$.items.push(23)`), поэтому такие правки **не** попадают в стек `undo/redo`.
 
-### `store.undo(pathOrAccessor)`
+### `store.undo(pathOrAccessor, spliceIndices?)`
 
-- **Что делает:** откатывает (undo) последнее изменение по указанному пути (или Accessor).
-
-  - Если есть предыдущая запись, возвращает `true` и восстанавливает предыдущее значение. Иначе возвращает `false`.
+Что делает: Откатывает (undo) последнее изменение по указанному пути или Accessor. Параметр `spliceIndices` (опционально) — кортеж `[start, deleteCount]`, задающий индексы для удаления элементов из undo-стека, чтобы ограничить историю изменений. Если предыдущая запись существует, восстанавливает её и возвращает `true`. Иначе возвращает `false`.
 
 - **Пример:**
 
   ```ts
   store.update('counter', 10);
   store.update('counter', 20);
-
   console.log(store.get('counter')); // 20
-  store.undo('counter');
+  store.undo('counter'); // Откат к 10
   console.log(store.get('counter')); // 10
+  store.undo('counter', [0, 1]); // Удаляет первую запись из undo-стека
   ```
 
 ---
 
-### `store.redo(pathOrAccessor)`
+### `store.redo(pathOrAccessor, spliceIndices?)`
 
-- **Что делает:** повторяет (redo) последнее откатное изменение по указанному пути.
-
-  - Если есть «отменённое» значение, возвращает `true` и применяет его. Иначе `false`.
+Что делает: Повторяет (redo) последнее отменённое изменение по указанному пути или Accessor. Параметр `spliceIndices` (опционально) — кортеж `[start, deleteCount]`, задающий индексы для удаления элементов из redo-стека. Если есть отменённое значение, применяет его и возвращает `true`. Иначе возвращает `false`.
 
 - **Пример:**
 
   ```ts
-  // Продолжение предыдущего примера:
-  store.undo('counter'); // возвращает к 10
-  store.redo('counter');
+  store.update('counter', 10);
+  store.update('counter', 20);
+  store.undo('counter'); // Возвращает к 10
+  store.redo('counter'); // Возвращает к 20
   console.log(store.get('counter')); // 20
+  store.redo('counter', [0, 1]); // Удаляет первую запись из redo-стека
   ```
 
 ---
@@ -656,15 +650,19 @@ const store = createObservableStore<AppState, DepthPath>(initialState, [], {
 
 ---
 
-### `store.clearHistoryPath(pathOrAccessor)`
+### `store.clearHistoryPath(pathOrAccessor, mode?, spliceIndices?)`
 
-Этот метод для точечной очистки истории изменений (undo/redo stack) конкретного поля состояния. Он полностью удаляет все сохранённые промежуточные состояния для указанного пути, но не затрагивает само текущее значение в сторе.
+Очищает историю изменений (undo/redo) для указанного пути или Accessor в состоянии. Параметр mode (опционально) определяет, какую часть истории очищать: только `'undo'`, только `'redo'` или обе (по умолчанию) если указать `'all'`. Параметр `spliceIndices` (опционально) — кортеж `[start, deleteCount]`, задающий индексы для удаления элементов из указанного стека, позволяя выборочно очищать часть истории. Метод не затрагивает текущее значение в сторе.
 
 - **Пример:**
 
 ```ts
-store.clearHistoryPath('user.age'); // или
-store.clearHistoryPath(($) => $.user.age);
+store.update('user.age', 25);
+store.update('user.age', 30);
+store.clearHistoryPath('user.age'); // Очищает всю историю для user.age
+console.log(store.get('user.age')); // 30 (значение не изменилось)
+store.clearHistoryPath(($) => $.user.age, 'undo', [0, 1]); // Очищает первую запись в undo-стеке
+store.clearHistoryPath(($) => $.user.age, 'all', [0, 1]); // очищает первую запись у undo/redo
 ```
 
 ### `store.clearAllHistory()`

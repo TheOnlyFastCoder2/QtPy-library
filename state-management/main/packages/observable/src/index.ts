@@ -8,8 +8,6 @@ import {
   Accessor,
   MetaData,
   PathLimitEntry,
-  ValueOrFn,
-  ExtractPathReturn,
 } from './types';
 import {
   normalizeCacheKey,
@@ -78,32 +76,59 @@ class HistoryManager<T extends object, D extends number = 0> {
     };
   }
 
-  undo(path: string): any | undefined {
-    const undo = this.undoStack.get(path) ?? [];
-    const redo = this.redoStack.get(path) ?? [];
+  private spliceStack(sourceStack: any[], targetStack: any[], spliceIndices?: [number, number]): any | undefined {
+    if (spliceIndices) {
+      const [start, deleteCount] = spliceIndices;
+      if (start < 0 || start >= sourceStack.length || deleteCount <= 0) {
+        return undefined;
+      }
+      const removed = sourceStack.splice(start, deleteCount);
+      targetStack.push(...removed);
+      return removed[removed.length - 1];
+    }
+    return undefined;
+  }
 
-    if (undo.length <= 1) return undefined;
+  undo(path: string, spliceIndices?: [number, number]): any | undefined {
+    const undo = this.undoStack.get(path as string) ?? [];
+    const redo = this.redoStack.get(path as string) ?? [];
+
+    if (undo.length <= 1 && !spliceIndices) return undefined;
+
+    if (spliceIndices) {
+      const result = this.spliceStack(undo, redo, spliceIndices);
+      this.undoStack.set(path as string, undo);
+      this.redoStack.set(path as string, redo);
+      return result ?? (undo.length > 0 ? undo[undo.length - 1] : undefined);
+    }
 
     const current = undo.pop()!;
     redo.push(current);
 
-    this.undoStack.set(path, undo);
-    this.redoStack.set(path, redo);
+    this.undoStack.set(path as string, undo);
+    this.redoStack.set(path as string, redo);
 
     return undo[undo.length - 1];
   }
 
-  redo(path: string): any | undefined {
-    const undo = this.undoStack.get(path) ?? [];
-    const redo = this.redoStack.get(path) ?? [];
+  redo(path: string, spliceIndices?: [number, number]): any | undefined {
+    const undo = this.undoStack.get(path as string) ?? [];
+    const redo = this.redoStack.get(path as string) ?? [];
 
-    if (redo.length === 0) return undefined;
+    if (redo.length === 0 && !spliceIndices) return undefined;
+
+    if (spliceIndices) {
+      const result = this.spliceStack(redo, undo, spliceIndices);
+      this.undoStack.set(path as string, undo);
+      this.redoStack.set(path as string, redo);
+      return result;
+    }
 
     const value = redo.pop()!;
     undo.push(value);
 
-    this.undoStack.set(path, undo);
-    this.redoStack.set(path, redo);
+    this.undoStack.set(path as string, undo);
+    this.redoStack.set(path as string, redo);
 
     return value;
   }
@@ -113,9 +138,44 @@ class HistoryManager<T extends object, D extends number = 0> {
     return undo[undo.length - 1];
   }
 
-  clear(path: string) {
-    this.undoStack.delete(path);
-    this.redoStack.delete(path);
+  clear(path: string, mode: 'redo' | 'undo' | 'all' = 'all', spliceIndices?: [number, number]) {
+    const undo = this.undoStack.get(path as string) ?? [];
+    const redo = this.redoStack.get(path as string) ?? [];
+
+    if (spliceIndices) {
+      const [start, deleteCount] = spliceIndices;
+      if (start < 0 || start >= (mode === 'redo' ? redo : undo).length || deleteCount <= 0) {
+        return false;
+      }
+      if (mode === 'redo') {
+        redo.splice(start, deleteCount);
+        this.redoStack.set(path as string, redo);
+        return true;
+      } else if (mode === 'undo') {
+        undo.splice(start, deleteCount);
+        this.undoStack.set(path as string, undo);
+        return true;
+      } else if (mode === 'all') {
+        const undoChanged = undo.length > 0 && start >= 0 && start < undo.length && deleteCount > 0;
+        const redoChanged = redo.length > 0 && start >= 0 && start < redo.length && deleteCount > 0;
+        if (undoChanged) undo.splice(start, deleteCount);
+        if (redoChanged) redo.splice(start, deleteCount);
+        this.undoStack.set(path as string, undo);
+        this.redoStack.set(path as string, redo);
+        return undoChanged || redoChanged;
+      }
+    }
+
+    switch (mode) {
+      case 'redo':
+        return this.redoStack.delete(path as string);
+      case 'undo':
+        return this.undoStack.delete(path as string);
+      default:
+        const undoDeleted = this.undoStack.delete(path as string);
+        const redoDeleted = this.redoStack.delete(path as string);
+        return undoDeleted || redoDeleted;
+    }
   }
 
   pruneUnused(usedPaths: Set<string>) {
@@ -327,9 +387,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
   }
 
-  store.clearHistoryPath = (pathOrAccessor) => {
+  store.clearHistoryPath = (pathOrAccessor, mode: 'redo' | 'undo' | 'all' = 'all', spliceIndices?: [number, number]) => {
     const mainPath = resolve(pathOrAccessor);
-    historyMgr.clear(mainPath);
+    historyMgr.clear(mainPath, mode, spliceIndices);
   };
 
   store.clearAllHistory = () => {
@@ -535,10 +595,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     return historyMgr.getHistory(path);
   };
 
-  store.undo = (p) => {
+  store.undo = (p, spliceIndices) => {
     validatePath(p);
     const path = resolve(p);
-    const prevValue = historyMgr.undo(path);
+    const prevValue = historyMgr.undo(path, spliceIndices);
     if (prevValue !== undefined) {
       doUpdate(path, prevValue, true);
       store.update(path, prevValue, { skipHistory: true, keepQuiet: true });
@@ -547,10 +607,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     console.warn(`No undo history for path: ${path}`);
     return false;
   };
-  store.redo = (p: any): boolean => {
+  store.redo = (p: any, spliceIndices): boolean => {
     validatePath(p);
     const path = resolve(p);
-    const nextValue = historyMgr.redo(path);
+    const nextValue = historyMgr.redo(path, spliceIndices);
     if (nextValue !== undefined) {
       doUpdate(path, nextValue, true);
       store.update(path, nextValue, { skipHistory: true, keepQuiet: true });

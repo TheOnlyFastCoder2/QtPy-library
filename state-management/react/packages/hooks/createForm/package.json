@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/react-stm-form",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/react/packages/hooks/createForm/README.md",

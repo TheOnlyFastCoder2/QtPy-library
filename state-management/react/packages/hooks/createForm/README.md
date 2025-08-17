@@ -168,8 +168,8 @@ const App = () => {
 
   return (
     <div className="p-4">
-      <Input name="username" form={form} />
-      <CheckBox name="consent" form={form}>
+      <Input name="username" />
+      <CheckBox name="consent">
         Согласен с условиями
       </CheckBox>
       <button onClick={form.handleSubmit} disabled={!formStatus.isValid}>
@@ -211,7 +211,7 @@ const form = createForm<FormValueMap>({
 const App = () => {
   return (
     <div className="p-4">
-      <Input name="email" form={form} />
+      <Input name="email" />
       <button onClick={form.resetForm}>Сбросить</button>
     </div>
   );
@@ -253,7 +253,7 @@ const App = () => {
 
   return (
     <div className="p-4">
-      <Input name="username" form={form} />
+      <Input name="username" />
     </div>
   );
 };
@@ -297,8 +297,8 @@ const App = () => {
 
   return (
     <div className="p-4">
-      <Input name="task" form={form} />
-      <Input name="task_1" form={form} />
+      <Input name="task" />
+      <Input name="task_1" />
     </div>
   );
 };
@@ -333,7 +333,7 @@ const App = () => {
 
   return (
     <div className="p-4">
-      <Input name="username" form={form} />
+      <Input name="username" />
     </div>
   );
 };
@@ -375,7 +375,7 @@ const App = () => {
 
   return (
     <div className="p-4">
-      <Input name="phone" form={form} />
+      <Input name="phone" />
     </div>
   );
 };
@@ -408,7 +408,7 @@ const form = createForm<FormValueMap>({
 const App = () => {
   return (
     <div className="p-4">
-      <Input name="username" form={form} />
+      <Input name="username" />
       <button onClick={form.handleSubmit}>Отправить</button>
     </div>
   );

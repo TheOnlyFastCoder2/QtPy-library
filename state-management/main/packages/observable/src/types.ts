@@ -335,9 +335,12 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
 
   /**
    * Очищает историю изменений (undo/redo) для указанного пути в состоянии.
-   * @param {P} pathOrAccessor - Accessor-функция или строка - указывающая на свойство, историю которого нужно очистить.
+   *
+   * @param {P} pathOrAccessor - Accessor-функция или строка, указывающая на свойство, историю которого нужно очистить.
+   * @param {'undo' | 'redo'} [mode] - Определяет, какую часть истории очистить: только 'undo', только 'redo' или обе если указать 'all').
+   * @param spliceIndices - Опционально: индексы [start, deleteCount] для удаления элементов из указанного стека.
    */
-  clearHistoryPath<const P extends PathOrAccessor<T, D>>(pathOrAccessor: P): void;
+  clearHistoryPath<const P extends PathOrAccessor<T, D>>(pathOrAccessor: P, mode?: 'redo' | 'undo' | 'all', spliceIndices?: [number, number]): void;
   /**
    * Полностью очищает всю историю изменений (undo/redo) для всех путей в состоянии.
    */
@@ -399,7 +402,10 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @returns Функция, которая принимает аргументы для callback и выполняет его с задержкой.
    *          Содержит метод `cancel` для отмены отложенного вызова.
    */
-  debounced<T extends any[]>(callback: (...args: T) => void, delay: number): ((...args: T) => void) & { cancel: () => void };
+  debounced<T extends any[]>(
+    callback: (...args: T) => void,
+    delay: number
+  ): ((...args: T) => void) & { cancel: () => void };
 
   /**
    * Вычислить новое значение без его установки по строковому пути.
@@ -445,18 +451,20 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
   };
 
   /**
-   * Откатить последнее изменение по пути.
+   * Выполняет откат изменений по указанному пути.
    * @param path - Путь или Accessor.
-   * @returns Был ли выполнен откат.
+   * @param spliceIndices - Опционально: индексы [start, deleteCount] для удаления элементов из undo-стека.
+   * @returns Значение после отката или undefined, если откат невозможен.
    */
-  undo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
+  undo<const P extends PathOrAccessor<T, D>>(path: P, spliceIndices?: [number, number]): boolean;
 
-  /**
-   * возвращает откат по пути.
+ /**
+   * Выполняет откат изменений по указанному пути.
    * @param path - Путь или Accessor.
-   * @returns Был ли выполнен откат.
+   * @param spliceIndices - Опционально: индексы [start, deleteCount] для удаления элементов из undo-стека.
+   * @returns Значение после отката или undefined, если откат невозможен.
    */
-  redo<const P extends PathOrAccessor<T, D>>(path: P): boolean;
+  redo<const P extends PathOrAccessor<T, D>>(path: P, spliceIndices?: [number, number]): boolean;
 
   /**
    * Получить значение из undo-истории на указанное количество шагов назад.
