@@ -59,8 +59,8 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
   // Если второго аргумента нет, используем статическую обработку
   if (args.length < 2) {
     let staticPath = compactPath
-      .replace(/\[['"]([\w$]+)['"]\]/g, '.$1') // ['foo'] → .foo
-      .replace(/\[([\w$]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
+      .replace(/\[['"]([^[\]]+)['"]\]/g, '.$1') // ['foo'] или ['key-1'] → .foo / .key-1
+      .replace(/\[([^[\]]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
     if (staticPath.startsWith('.')) {
       staticPath = staticPath.slice(1);
     }
@@ -78,8 +78,8 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
   // Если нет вызовов второго аргумента, обрабатываем статические индексы
   if (!tCallSimple.test(compactPath)) {
     let staticPath = compactPath
-      .replace(/\[['"]([\w$]+)['"]\]/g, '.$1') // ['foo'] → .foo
-      .replace(/\[([\w$]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
+      .replace(/\[['"]([^[\]]+)['"]\]/g, '.$1') // ['foo'] или ['key-1'] → .foo / .key-1
+      .replace(/\[([^[\]]+)\]/g, '.$1'); // [123] или [foo] → .123 / .foo
     if (staticPath.startsWith('.')) {
       staticPath = staticPath.slice(1);
     }

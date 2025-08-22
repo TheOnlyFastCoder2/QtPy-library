@@ -168,7 +168,8 @@ const scrollMath = {
    * @returns Скорость скролла
    */
   calculateWheelVelocity: (deltaY: number, velocityFactor: number, maxVelocity: number) => {
-    const rawVelocity = deltaY * velocityFactor;
+    const normalizedDelta = deltaY / 100;
+    const rawVelocity = (normalizedDelta * velocityFactor) * 1.5;
     return Math.sign(rawVelocity) * Math.min(Math.abs(rawVelocity), maxVelocity);
   },
 
@@ -209,7 +210,9 @@ const performScroll = (element: HTMLElement | Window, scrollTop: number) => {
 
 // Утилита: Получение высоты контейнера
 const getContainerHeight = (element: HTMLElement | Window) => {
-  return element === window ? CONSTANTS.FULL_HEIGHT : `${(element as HTMLElement)?.clientHeight || 0}px`;
+  return element === window
+    ? CONSTANTS.FULL_HEIGHT
+    : `${(element as HTMLElement)?.clientHeight || 0}px`;
 };
 
 export default function useScrollFx() {
@@ -217,7 +220,7 @@ export default function useScrollFx() {
   const [isMobile, setIsMobile] = useState(false);
   const [delayScroll, setDelayScroll] = useState<DelayScroll>({
     scrollBase: 2,
-    scrollByTo: 2
+    scrollByTo: 2,
   });
 
   // Группировка всех рефов
@@ -225,10 +228,34 @@ export default function useScrollFx() {
     config: useRef<ScrollConfig>({
       timeoutVisible: undefined,
       browserConfigs: {
-        default: {ignoreEffect:false, dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 },
-        safari: {ignoreEffect:false, dumping: 0.87, velocity: 1.2, threshold: 0.3, maxVelocity: 3 },
-        chrome: {ignoreEffect:false, dumping: 0.91, velocity: 1, threshold: 0.25, maxVelocity: 2 },
-        firefox: {ignoreEffect:false, dumping: 0.85, velocity: 1.1, threshold: 0.3, maxVelocity: 2.5 },
+        default: {
+          ignoreEffect: false,
+          dumping: 0.91,
+          velocity: 1,
+          threshold: 0.25,
+          maxVelocity: 2,
+        },
+        safari: {
+          ignoreEffect: false,
+          dumping: 0.87,
+          velocity: 1.2,
+          threshold: 0.3,
+          maxVelocity: 3,
+        },
+        chrome: {
+          ignoreEffect: false,
+          dumping: 0.91,
+          velocity: 1,
+          threshold: 0.25,
+          maxVelocity: 2,
+        },
+        firefox: {
+          ignoreEffect: false,
+          dumping: 0.85,
+          velocity: 1.1,
+          threshold: 0.3,
+          maxVelocity: 2.5,
+        },
       },
     }),
     scrollElement: useRef<HTMLElement | Window>(window),
@@ -268,7 +295,11 @@ export default function useScrollFx() {
   };
 
   // Обновление позиции скролла при перетаскивании
-  const updateDragScroll = (scrollData: ReturnType<typeof getScrollData>, thumbHeight: number, deltaY: number) => {
+  const updateDragScroll = (
+    scrollData: ReturnType<typeof getScrollData>,
+    thumbHeight: number,
+    deltaY: number
+  ) => {
     const { scrollHeight, clientHeight } = scrollData;
     const { newScrollTop, newThumbTop } = scrollMath.calculateDragScrollTop(
       deltaY,
@@ -281,7 +312,11 @@ export default function useScrollFx() {
     refs.direction.current = getScrollDirection(newScrollTop, refs.dragStartScrollTop.current);
     performScroll(refs.scrollElement.current, newScrollTop);
     setThumbTop(refs.thumb.current!, newThumbTop);
-    triggerCallback(newThumbTop, scrollHeight - clientHeight, scrollMath.calculateScrollProgress(newScrollTop, scrollHeight, clientHeight));
+    triggerCallback(
+      newThumbTop,
+      scrollHeight - clientHeight,
+      scrollMath.calculateScrollProgress(newScrollTop, scrollHeight, clientHeight)
+    );
   };
 
   // Обновление позиции ползунка и связанной логики
@@ -293,11 +328,20 @@ export default function useScrollFx() {
     const thumbHeight = thumb.current!.offsetHeight;
     const maxScroll = scrollHeight - clientHeight;
 
-    const thumbTop = scrollMath.calculateThumbPosition(scrollTop, scrollHeight, clientHeight, thumbHeight);
+    const thumbTop = scrollMath.calculateThumbPosition(
+      scrollTop,
+      scrollHeight,
+      clientHeight,
+      thumbHeight
+    );
     setThumbTop(thumb.current!, thumbTop);
 
     updateScrollDirection(scrollTop);
-    triggerCallback(thumbTop, maxScroll, scrollMath.calculateScrollProgress(scrollTop, scrollHeight, clientHeight));
+    triggerCallback(
+      thumbTop,
+      maxScroll,
+      scrollMath.calculateScrollProgress(scrollTop, scrollHeight, clientHeight)
+    );
 
     hideScrollbarWithDelay();
   };
@@ -315,26 +359,23 @@ export default function useScrollFx() {
   };
 
   // Анимация скролла с использованием requestAnimationFrame
-  const animFrameScroll = useAnimationFrame<{ velocity: number }>(
-    ({ velocity }) => {
-      const { scrollElement } = refs;
-      if (!scrollElement.current || isMobile) return;
+  const animFrameScroll = useAnimationFrame<{ velocity: number }>(({ velocity }) => {
+    const { scrollElement } = refs;
+    if (!scrollElement.current || isMobile) return;
 
-      scrollElement.current === window
-        ? window.scrollBy(0, velocity)
-        : ((scrollElement.current as HTMLElement).scrollTop += velocity);
+    scrollElement.current === window
+      ? window.scrollBy(0, velocity)
+      : ((scrollElement.current as HTMLElement).scrollTop += velocity);
 
-      const { dumping, threshold } = getBrowserConfig();
-      const nextVelocity = scrollMath.calculateNextVelocity(velocity, dumping);
-      Math.abs(nextVelocity) > threshold
-        ? animFrameScroll.setData({ velocity: nextVelocity })
-        : animFrameScroll.stop();
+    const { dumping, threshold } = getBrowserConfig();
+    const nextVelocity = scrollMath.calculateNextVelocity(velocity, dumping);
+    Math.abs(nextVelocity) > threshold
+      ? animFrameScroll.setData({ velocity: nextVelocity })
+      : animFrameScroll.stop();
 
-      refs.direction.current = getScrollDirection(velocity, 0);
-      updateThumbPosition();
-    },
-    delayScroll.scrollBase
-  );
+    refs.direction.current = getScrollDirection(velocity, 0);
+    updateThumbPosition();
+  }, delayScroll.scrollBase);
 
   // Анимация для scrollTo
   const scrollToAnimation = useAnimationFrame<{
@@ -366,10 +407,18 @@ export default function useScrollFx() {
         return;
       }
 
-      const ease = (t: number) => 1 - Math.pow(1 - t, 3); 
-      const progressIncrement = 0.05 * velocity;
+      // Мягкая функция сглаживания с усиленным замедлением в начале
+      const ease = (t: number) => {
+        if (t < 0.2) {
+          return Math.pow(t / 0.2, 4) * 0.2; // Замедление в начале (первые 20% прогресса)
+        }
+        return Math.sin((t * Math.PI) / 2); // Стандартная синусоида для остальной анимации
+      };
+
+      // Динамический progressIncrement: меньше в начале, больше позже
+      const progressIncrement = progress < 0.2 ? 0.01 * velocity : 0.02 * velocity; // Замедление на старте
       const newProgress = Math.min(progress + progressIncrement * (1 - dumping), 1);
-      const currentScroll = start + (clampedTarget - start) * ease(newProgress);
+      const currentScroll = Math.round(start + (clampedTarget - start) * ease(newProgress) * 100) / 100;
 
       performScroll(scrollElement.current, currentScroll);
       const thumbTop = scrollMath.calculateThumbPosition(currentScroll, scrollHeight, clientHeight, thumbHeight);
@@ -386,7 +435,6 @@ export default function useScrollFx() {
     delayScroll.scrollByTo
   );
 
-
   const scrollTo = (value: number) => {
     const { scrollElement } = refs;
     if (!scrollElement.current) return;
@@ -397,8 +445,7 @@ export default function useScrollFx() {
     scrollToAnimation.start();
   };
 
-
-  const getRefTop = (refObject: HTMLElement|Element): number|void => {
+  const getRefTop = (refObject: HTMLElement | Element): number | void => {
     const { scrollElement } = refs;
     if (!scrollElement.current || !refObject) return;
 
@@ -408,11 +455,12 @@ export default function useScrollFx() {
 
     const elementTop = isWindow
       ? elementRect.top + scrollData.scrollTop
-      : elementRect.top + scrollData.scrollTop - (scrollElement.current as HTMLElement).getBoundingClientRect().top;
+      : elementRect.top +
+      scrollData.scrollTop -
+      (scrollElement.current as HTMLElement).getBoundingClientRect().top;
 
-    return elementTop
+    return elementTop;
   };
-
 
   // Обработчик начала перетаскивания ползунка
   const handleThumbMouseDown = (e: React.MouseEvent) => {
@@ -421,7 +469,8 @@ export default function useScrollFx() {
     refs.isDragging.current = true;
     refs.dragStartY.current = e.clientY;
     const el = refs.scrollElement.current;
-    refs.dragStartScrollTop.current = el === window ? window.scrollY : (el as HTMLElement).scrollTop;
+    refs.dragStartScrollTop.current =
+      el === window ? window.scrollY : (el as HTMLElement).scrollTop;
     animFrameScroll.stop();
     document.documentElement?.classList.add(CONSTANTS.CLASS_FOCUS_SCROLL);
   };
@@ -462,14 +511,24 @@ export default function useScrollFx() {
   useEvent(
     'wheel',
     (e, remove) => {
+      e.preventDefault()
       if (isMobile) return remove();
       if (getBrowserConfig().ignoreEffect) return remove();
 
       const { scrollElement } = refs;
-      if (!scrollElement.current || (scrollElement.current !== window && !(scrollElement.current as HTMLElement).contains(e.target as HTMLElement))) return;
+      if (
+        !scrollElement.current ||
+        (scrollElement.current !== window &&
+          !(scrollElement.current as HTMLElement).contains(e.target as HTMLElement))
+      )
+        return;
 
       const { velocity: velocityFactor, maxVelocity } = getBrowserConfig();
-      const clampedVelocity = scrollMath.calculateWheelVelocity(e.deltaY, velocityFactor, maxVelocity);
+      const clampedVelocity = scrollMath.calculateWheelVelocity(
+        e.deltaY,
+        velocityFactor,
+        maxVelocity
+      );
 
       refs.direction.current = getScrollDirection(clampedVelocity, 0);
       animFrameScroll.setData({ velocity: clampedVelocity });
@@ -479,14 +538,17 @@ export default function useScrollFx() {
   );
 
   // Обработчик скролла для мобильных устройств
-  useEvent('scroll', () => (isMobile || getBrowserConfig().ignoreEffect) && updateThumbPosition(), { passive: true });
+  useEvent('scroll', () => (isMobile || getBrowserConfig().ignoreEffect) && updateThumbPosition(), {
+    passive: true,
+  });
 
   // Инициализация и очистка
   useEffect(() => {
     const isMob = getDeviceType() === 'mobile';
     const isIgnore = getBrowserConfig().ignoreEffect;
     setIsMobile(isMob);
-    document.documentElement.style.overflow = isMob || !isIgnore ? CONSTANTS.STYLE_AUTO : CONSTANTS.STYLE_HIDDEN;
+    document.documentElement.style.overflow =
+      isMob || !isIgnore ? CONSTANTS.STYLE_AUTO : CONSTANTS.STYLE_HIDDEN;
     updateThumbPosition();
 
     return () => {
@@ -497,7 +559,8 @@ export default function useScrollFx() {
 
   // Стили для контейнера скроллбара
   const scrollContainerStyles = {
-    position: refs.scrollElement.current === window ? CONSTANTS.STYLE_FIXED : CONSTANTS.STYLE_ABSOLUTE,
+    position:
+      refs.scrollElement.current === window ? CONSTANTS.STYLE_FIXED : CONSTANTS.STYLE_ABSOLUTE,
     userSelect: refs.isDragging.current ? CONSTANTS.STYLE_NONE : CONSTANTS.STYLE_AUTO,
     pointerEvents: isMobile ? CONSTANTS.STYLE_NONE : CONSTANTS.STYLE_AUTO,
     height: getContainerHeight(refs.scrollElement.current),
@@ -514,9 +577,19 @@ export default function useScrollFx() {
 
   // Компонент скроллбара
   const Scroll = useCallback(
-    ({ className='', ...props }:React.HTMLAttributes<HTMLDivElement>) => (
-      <div { ...props } ref={ refs.scrollContainer } className={ `ScrollFx ${className} ${getDeviceClass(isMobile)}` } style={ scrollContainerStyles }>
-        <div ref={ refs.thumb } className="ScrollFx_thumb" style={ thumbStyles } onMouseDown={ handleThumbMouseDown } />
+    ({ className = '', ...props }: React.HTMLAttributes<HTMLDivElement>) => (
+      <div
+        { ...props }
+        ref={ refs.scrollContainer }
+        className={ `ScrollFx ${className} ${getDeviceClass(isMobile)}` }
+        style={ scrollContainerStyles }
+      >
+        <div
+          ref={ refs.thumb }
+          className="ScrollFx_thumb"
+          style={ thumbStyles }
+          onMouseDown={ handleThumbMouseDown }
+        />
       </div>
     ),
     [isMobile, handleThumbMouseDown]

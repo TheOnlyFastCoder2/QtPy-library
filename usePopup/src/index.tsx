@@ -94,11 +94,11 @@ export default function usePopup<T = any>(delay: number = 0) {
   const PopupWithMemo = Object.assign(Popup, {
     Memo: function <TProps extends ImperativePopupProps<T>, TExtensions extends object = {}>(
       config: {
-        toOpenPopup: () => void;
-        toTogglePopup: () => void;
-        toClosePopup: () => void;
-        showWithData: (data: T) => void;
-        isShowed: boolean;
+        toOpenPopup?: () => void;
+        toTogglePopup?: () => void;
+        toClosePopup?: () => void;
+        showWithData?: (data: T) => void;
+        isShowed?: boolean;
         Popup: React.FC<TProps>;
       } & TExtensions,
       deps: React.DependencyList[] = []

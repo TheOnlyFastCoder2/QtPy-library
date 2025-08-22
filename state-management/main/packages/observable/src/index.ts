@@ -1,4 +1,5 @@
 //index.ts
+import { count } from 'console';
 import {
   Middleware,
   Subscriber,
@@ -22,6 +23,7 @@ import {
   calculateSnapshotHash,
   detRandomId,
 } from './utils';
+import { subscribe } from 'diagnostics_channel';
 
 class HistoryManager<T extends object, D extends number = 0> {
   private undoStack = new Map<string, any[]>();
