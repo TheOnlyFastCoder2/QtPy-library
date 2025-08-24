@@ -376,6 +376,84 @@ export function stringify(root: any): string {
   return out.join('');
 }
 
-export function detRandomId() {
+export function getRandomId() {
   return `${Math.floor(performance.now()).toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
+
+
+export function ssrStore<T extends object, D extends number = 0>(
+  store: ObservableStore<T, D>,
+  ssrStoreId = 'ssrStoreId_default'
+) {
+
+  const ssrEnhancedStore = store as ObservableStore<T, D> & {
+    snapshot: () => Promise< T>;
+    getSerializedStore: (type:'window' | 'scriptTag') => Promise<string>;
+    getSSRStoreId: () => string,
+    hydrate: () => void;
+    hydrateWithDocument: () => void;
+    getIsSSR: () => boolean;
+  };;
+
+  const pendingPromises: Promise<void>[] = [];
+  const originalAsyncUpdate = ssrEnhancedStore.asyncUpdate;
+  //@ts-expect-error
+  ssrEnhancedStore.asyncUpdate = async (...args) => {
+    const promise = originalAsyncUpdate(...args);
+    pendingPromises.push(promise);
+    return promise;
+  };
+  ssrEnhancedStore.asyncUpdate.quiet = async (...args) => {
+    const promise = originalAsyncUpdate(...args);
+    pendingPromises.push(promise);
+    return promise;
+  };
+
+  ssrEnhancedStore.getIsSSR = () => { 
+    return typeof window === 'undefined'
+  }
+
+  ssrEnhancedStore.getSSRStoreId = () => ssrStoreId;
+
+  ssrEnhancedStore.snapshot = async () => {
+    try {
+      await Promise.all(pendingPromises);
+      pendingPromises.length = 0;
+      return store.getRawStore();
+    } catch (error) {
+      console.error('Failed to create snapshot:', error);
+      throw error;
+    }
+  };
+
+  ssrEnhancedStore.getSerializedStore = async (type: 'window' | 'scriptTag' = 'scriptTag') => {
+    const snapshot = await ssrEnhancedStore.snapshot();
+    const serialized = JSON.stringify(snapshot);
+    return {
+      window: `window['${ssrStoreId}'] = ${serialized};`,
+      scriptTag: `<script id="${ssrStoreId}" type="application/json">${serialized}</script>`
+    }[type];
+  };
+
+  ssrEnhancedStore.hydrate = () => {
+    if (!ssrEnhancedStore.getIsSSR() && window[ssrStoreId]) {
+      const stateElement = document.getElementById(ssrStoreId);
+      ssrEnhancedStore.setRawStore(window[ssrStoreId]);
+      delete window[ssrStoreId];
+      stateElement?.remove();
+    }
+  };
+  
+  ssrEnhancedStore.hydrateWithDocument = () => {
+    if (!ssrEnhancedStore.getIsSSR()) {
+      const hydrateOnDomLoaded = () => {
+        ssrEnhancedStore.hydrate();
+        document.removeEventListener('DOMContentLoaded', hydrateOnDomLoaded);
+      };
+      document.addEventListener('DOMContentLoaded', hydrateOnDomLoaded);
+    }
+  }
+
+  return ssrEnhancedStore
+}
+

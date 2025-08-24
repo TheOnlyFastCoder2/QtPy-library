@@ -1,3 +1,5 @@
+export type * as core from '@qtpy/state-management-observable/types';
+
 import {
   Accessor,
   ObservableStore,
@@ -6,16 +8,12 @@ import {
   PathExtract,
   MaxDepth,
   ExtractPathReturn,
-} from "@qtpy/state-management-observable/types";
+} from '@qtpy/state-management-observable/types';
 
 /**
  * Тип возвращаемого массива значений по path-прокси
  */
-export type useStoreReturn<
-  T,
-  P extends readonly PathOrAccessor<T, D>[],
-  D extends number = MaxDepth
-> = {
+export type useStoreReturn<T, P extends readonly PathOrAccessor<T, D>[], D extends number = MaxDepth> = {
   [K in keyof P]: P[K] extends Accessor<T, infer V>
     ? V
     : P[K] extends PathOrError<T, infer S, D>
@@ -76,8 +74,7 @@ export type SetterWithQuiet<V> = {
  *   );
  * }
  */
-export interface ReactStore<T extends object, D extends number = MaxDepth>
-  extends ObservableStore<T, D> {
+export interface ReactStore<T extends object, D extends number = MaxDepth> extends ObservableStore<T, D> {
   /**
    * Подписка на массив путей, возвращает массив текущих значений.
    *
@@ -91,7 +88,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    */
   useStore<const P extends readonly PathOrAccessor<T, D>[]>(
     paths: P,
-    options?: { cacheKeys?: PathOrAccessor<T, D>[], refInInvalidation?: React.RefObject<boolean> }
+    options?: { cacheKeys?: PathOrAccessor<T, D>[]; refInInvalidation?: React.RefObject<boolean> }
   ): useStoreReturn<T, P, D>;
 
   /**
@@ -111,10 +108,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
   useField<const P extends PathOrAccessor<T, D>>(
     path: P,
     options?: { cacheKeys?: PathOrAccessor<T, D>[] }
-  ): readonly [
-    ExtractPathReturn<T, P, D>,
-    SetterWithQuiet<ExtractPathReturn<T, P, D>>
-  ];
+  ): readonly [ExtractPathReturn<T, P, D>, SetterWithQuiet<ExtractPathReturn<T, P, D>>];
 
   /**
    * Хук-эффект, вызываемый при изменении значений по указанным путям.
@@ -128,9 +122,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    *   console.log("Count or name changed:", count, name);
    * });
    */
-  useEffect<
-    const P extends readonly PathOrAccessor<T, D>[]
-  >(
+  useEffect<const P extends readonly PathOrAccessor<T, D>[]>(
     paths: P,
     effect: (values: useStoreReturn<T, P, D>) => void,
     options?: { inInvalidation?: boolean }
@@ -144,11 +136,7 @@ export interface ReactStore<T extends object, D extends number = MaxDepth>
    * @example
    * store.reloadComponents(["user", "count"]);
    */
-  reloadComponents<
-    const P extends readonly PathOrAccessor<T, D>[]
-  >(
-    cacheKeys: P
-  ): void;
+  reloadComponents<const P extends readonly PathOrAccessor<T, D>[]>(cacheKeys: P): void;
 }
 
 /**

@@ -334,13 +334,35 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
   readonly $: T;
 
   /**
+   * Вернуть "сырой" state без Proxy.
+   */
+  getRawStore(): T;
+
+  /**
+   * Форсировать обновление всех подписчиков, как будто изменилось всё состояние.
+   */
+  invalidateAll(): void;
+
+  /**
+   * Полностью заменить "сырой" state.
+   *
+   * @param {T} newState - Новый объект состояния.
+   * @param options.keepQuiet - Если true, не триггерить подписчиков.
+   */
+  setRawStore(newState: T, options?: { keepQuiet?: boolean }): void;
+
+  /**
    * Очищает историю изменений (undo/redo) для указанного пути в состоянии.
    *
    * @param {P} pathOrAccessor - Accessor-функция или строка, указывающая на свойство, историю которого нужно очистить.
    * @param {'undo' | 'redo'} [mode] - Определяет, какую часть истории очистить: только 'undo', только 'redo' или обе если указать 'all').
    * @param spliceIndices - Опционально: индексы [start, deleteCount] для удаления элементов из указанного стека.
    */
-  clearHistoryPath<const P extends PathOrAccessor<T, D>>(pathOrAccessor: P, mode?: 'redo' | 'undo' | 'all', spliceIndices?: [number, number]): void;
+  clearHistoryPath<const P extends PathOrAccessor<T, D>>(
+    pathOrAccessor: P,
+    mode?: 'redo' | 'undo' | 'all',
+    spliceIndices?: [number, number]
+  ): void;
   /**
    * Полностью очищает всю историю изменений (undo/redo) для всех путей в состоянии.
    */
@@ -458,7 +480,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    */
   undo<const P extends PathOrAccessor<T, D>>(path: P, spliceIndices?: [number, number]): boolean;
 
- /**
+  /**
    * Выполняет откат изменений по указанному пути.
    * @param path - Путь или Accessor.
    * @param spliceIndices - Опционально: индексы [start, deleteCount] для удаления элементов из undo-стека.

@@ -14,7 +14,8 @@
 2. [Пример создания основного store (с middleware)](#пример-создания-основного-store-с-middleware)  
    2.1 [Что делает `DepthPath` и зачем он нужен](#что-делает-DepthPath-и-зачем-он-нужен)  
    2.2 [Что такое `Accessor` и зачем он нужен](#что-такое-Accessor-и-зачем-он-нужен)  
-   2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)
+   2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)   
+   2.4 [Что такое `ssrStore` и зачем он нужен](#что-такое-ssrstore-и-зачем-он-нужен)
 
 3. [API createObservableStore](#api-createobservablestore)  
    3.1. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
@@ -23,7 +24,10 @@
    3.4. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
    3.5. [`store.update(pathOrAccessor, valueOrFn, options)`](#storeupdatepathoraccessor-valueorfn-options)  
    3.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)  
-   3.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)
+   3.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)  
+   3.8 [`store.getRawStore()`](#storegetrawstore)  
+   3.9 [`store.setRawStore()`](#storegetrawstore)  
+   3.10 [`store.invalidateAll()`](#storeinvalidateall)
 
 4. [Асинхронные обновления](#асинхронные-обновления)  
    4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
@@ -66,11 +70,12 @@
 ## Основная идея и архитектура
 
 1. #### Прозрачная реактивность
+
    Реактивность реализована через систему подписок и JavaScript Proxy:
 
-    - **Система подписок**: Хранит подписчиков (`subscribers`, `pathSubscribers`) и уведомляет их об изменениях через `notifyInvalidate`. Работает независимо от прокси, используя `getRaw` и `setRaw`.
-    - **Система прокси**: Перехватывает операции чтения (`get`), записи (`set`) и удаления, собирает зависимости в `trackedPaths` и инициирует обновления через `store.update`, уведомляя подписчиков.
-    - **Взаимодействие**: Подписки независимы, прокси зависит от них для уведомлений. Middleware интегрируется в цепочку обновлений.
+   - **Система подписок**: Хранит подписчиков (`subscribers`, `pathSubscribers`) и уведомляет их об изменениях через `notifyInvalidate`. Работает независимо от прокси, используя `getRaw` и `setRaw`.
+   - **Система прокси**: Перехватывает операции чтения (`get`), записи (`set`) и удаления, собирает зависимости в `trackedPaths` и инициирует обновления через `store.update`, уведомляя подписчиков.
+   - **Взаимодействие**: Подписки независимы, прокси зависит от них для уведомлений. Middleware интегрируется в цепочку обновлений.
 
 2. #### Поддержка типизированных строковых ключей
 
@@ -401,9 +406,62 @@ console.log('Будет следующий counter:', nextCounter);
 
 ---
 
+### `store.getRawStore()`
+
+`getRaw` возвращает текущее «сырое» состояние без прокси и без обёрток реактивности. Это полезно, если нужно напрямую получить **весь state как объект** и работать с ним без триггера подписчиков.
+
+- **Пример:**
+
+```ts
+const state = store.getRaw();
+console.log(state);
+// { count: 1, user: { name: "Ann" } }
+```
+
+---
+
+### `store.setRawStore(newState, options?)`
+
+полностью заменяет весь state на новый объект. При этом:
+
+- все асинхронные операции отменяются,
+- история undo/redo очищается,
+- отложенные (debounced) операции сбрасываются,
+- подписчики остаются и будут уведомлены о новом состоянии (если не указать `keepQuiet`).
+
+- **Пример:**
+
+```ts
+store.setRaw({ count: 42, user: { name: 'Bob' } });
+// Подписчики вызовутся с новым состоянием
+
+store.setRaw({ count: 100 }, { keepQuiet: true });
+// Подписчики НЕ вызовутся
+```
+
+---
+
+### `store.invalidateAll()`
+
+`invalidateAll` форсированно запускает **все подписки** (и глобальные, и path-подписки), даже если состояние не изменилось.
+
+Это удобно, когда нужно «перепросчитать» все зависимости, например после полной перезагрузки стейта.
+
+- **Пример:**
+
+```ts
+store.subscribe((s) => {
+  console.log('sub:', s);
+});
+
+store.invalidateAll();
+// "sub:" { count: 42, user: { name: "Bob" } }
+```
+
 ## Асинхронные обновления
 
 ### `store.debounced(callback, delay)`
+
 Метод debounced создаёт функцию с отложенным вызовом, которая будет выполнена только после паузы между последовательными вызовами. Это особенно полезно для асинхронных операций, таких как HTTP-запросы, где важно избегать лишней нагрузки и отменять устаревшие запросы.
 
 **Пример использования:**
@@ -429,7 +487,7 @@ const debouncedFetchItems = store.debounced(
 debouncedFetchItems('items', 123);
 debouncedFetchItems('items', 456);
 debouncedFetchItems.cancel();
-debouncedFetchItems(($) => $.items, 452363); 
+debouncedFetchItems(($) => $.items, 452363);
 ```
 
 ### `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
@@ -454,10 +512,10 @@ debouncedFetchItems(($) => $.items, 452363);
   ```
 
 ---
+
 ### `store.asyncUpdate.quiet(pathOrAccessor, asyncUpdater, options?)`
 
 Вариант `asyncUpdate`, который **не вызывает перерисовку компонентов и не активирует подписки**. Это удобно для фоновых обновлений или временных значений, которые не должны вызывать реакцию в UI.
-
 
 - **Пример:**
 
@@ -478,6 +536,7 @@ debouncedFetchItems(($) => $.items, 452363);
     { abortPrevious: true }
   );
   ```
+
 ---
 
 ### `store.cancelAsyncUpdates(pathOrAccessor?)`
@@ -1097,6 +1156,116 @@ store.invalidate((t) => store.$['cacheKeys'].lol.items[t(idx)]);
 ```
 
 ---
+
+## Что такое `ssrStore` и зачем он нужен
+
+`ssrStore` — функция, расширяющая `ObservableStore` для поддержки серверного рендеринга (SSR). Она добавляет методы для сериализации состояния на сервере и гидратации на клиенте.
+
+### Сигнатура
+
+```typescript
+function ssrStore<T extends object, D extends number = 0>(
+  store: ObservableStore<T, D>,
+  ssrStoreId = 'ssrStoreId_default'
+): ObservableStore<T, D> & {
+    snapshot: () => Promise< T>;
+    getSerializedStore: (type:'window' | 'scriptTag') => Promise<string>;
+    getSSRStoreId: () => string,
+    hydrate: () => void;
+    hydrateWithDocument: () => void;
+    getIsSSR: () => boolean;
+};
+```
+
+### Параметры
+
+- `store`: Экземпляр `ObservableStore`.
+- `ssrStoreId`: Уникальный идентификатор стора (по умолчанию `'ssrStoreId_default'`).
+
+## Методы
+
+1. **snapshot(): Promise<T>**
+
+   - Возвращает текущее состояние стора после завершения всех асинхронных обновлений.
+   - Очищает очередь асинхронных операций.
+
+2. **getSerializedStore(type: 'window' | 'scriptTag'): Promise<string>**
+
+   - Сериализует состояние в JSON.
+   - `type: 'window'`: Возвращает JS-код для `window[ssrStoreId]`.
+   - `type: 'scriptTag'`: Возвращает `<script>` тег с JSON-данными.
+
+3. **getSSRStoreId(): string**
+
+   - Возвращает идентификатор стора (`ssrStoreId`).
+
+4. **hydrate(): void**
+   - Выполняет гидратацию на клиенте: восстанавливает состояние из `window[ssrStoreId]` и удаляет временные данные из DOM и `window`.
+
+5. **hydrateWithDocument(): void**
+   - Выполняет гидратацию на клиенте после события `DOMContentLoaded`.
+   - Автоматически удаляет слушатель события после выполнения.
+
+5. **getIsSSR(): boolean**
+   - Возвращает `true`, если код выполняется на сервере (`typeof window === 'undefined'`), иначе `false`.
+
+### Пример использования
+
+#### Инициализация
+
+```typescript
+interface State {
+  counter: number;
+  items: number[];
+}
+
+const stGlobal = ssrStore(
+  createObservableStore<State>({
+    counter: 0,
+    items: [],
+  }),
+  'myStore'
+);
+```
+
+#### Сервер
+
+```typescript
+res.send(`
+  <html>
+    <body>
+      <div id="root">${html}</div>
+      ${await stGlobal.getSerializedStore('scriptTag')}
+    </body>
+  </html>
+`);
+```
+
+#### SSR компонент в React
+
+```typescript
+<script
+  id={stGlobal.getSSRStoreId()}
+  dangerouslySetInnerHTML={{
+    __html: await stGlobal.getSerializedStore('window'),
+  }}
+/>
+```
+#### SSR компонент в React
+
+### Гидрация на клиенте
+```typescript
+// Гидратация после загрузки DOM
+stGlobal.hydrateWithDocument();
+```
+
+### Особенности
+
+- Отслеживает асинхронные обновления (`asyncUpdate`), ожидая их перед созданием снимка.
+- Поддерживает безопасную передачу состояния между сервером и клиентом.
+- Удаляет временные данные после гидратации.
+- `hydrateWithDocument` обеспечивает гидратацию после полной загрузки DOM.
+
 
 ## Основные преимущества такого подхода
 

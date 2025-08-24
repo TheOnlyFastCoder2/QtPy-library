@@ -1,5 +1,4 @@
 //index.ts
-import { count } from 'console';
 import {
   Middleware,
   Subscriber,
@@ -21,9 +20,9 @@ import {
   setMetaData,
   withMetaSupport,
   calculateSnapshotHash,
-  detRandomId,
+  getRandomId,
 } from './utils';
-import { subscribe } from 'diagnostics_channel';
+
 
 class HistoryManager<T extends object, D extends number = 0> {
   private undoStack = new Map<string, any[]>();
@@ -357,7 +356,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   const store: any = {};
-  const stateProxy = createReactiveProxy(rawState);
+  let stateProxy = createReactiveProxy(rawState);
   Object.defineProperty(store, '$', {
     get: () => stateProxy as T,
     enumerable: true,
@@ -389,7 +388,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
     }
   }
 
-  store.clearHistoryPath = (pathOrAccessor, mode: 'redo' | 'undo' | 'all' = 'all', spliceIndices?: [number, number]) => {
+  store.clearHistoryPath = (
+    pathOrAccessor,
+    mode: 'redo' | 'undo' | 'all' = 'all',
+    spliceIndices?: [number, number]
+  ) => {
     const mainPath = resolve(pathOrAccessor);
     historyMgr.clear(mainPath, mode, spliceIndices);
   };
@@ -435,7 +438,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   store.debounced = (callback: (...args: any[]) => void, delay: number): ((...args: any[]) => void) => {
-    const debounceId = detRandomId();
+    const debounceId = getRandomId();
     let timer: NodeJS.Timeout | null = null;
     const debouncedFn = (...args: any[]) => {
       if (timer) {
@@ -688,6 +691,23 @@ export function createObservableStore<T extends object, D extends number = 0>(
     };
   };
 
+  store.invalidateAll = () => {
+    subscribers.forEach((sub) => {
+      const meta: SubscriptionMeta = (sub as any).__meta;
+      currentSubscriberMeta = meta;
+      try {
+        sub(stateProxy);
+      } finally {
+        currentSubscriberMeta = null;
+      }
+    });
+
+    pathSubscribers.forEach((subs, path) => {
+      const newVal = getRaw(path);
+      subs.forEach((cb) => cb(newVal));
+    });
+  };
+
   store.invalidate = (keyProxy) => {
     const key = resolve(keyProxy);
     notifyInvalidate(key);
@@ -724,6 +744,19 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   store.resolvePath = resolve;
+  store.getRawStore = () => rawState;
+
+  store.setRawStore = async (newState: T, options?: { keepQuiet?: boolean }) => {
+    store.cancelAsyncUpdates();
+    store.clearAllHistory();
+    debounceTimers.forEach((timer) => clearTimeout(timer));
+    debounceTimers.clear();
+    rawState = { ...newState };
+    stateProxy = createReactiveProxy(rawState);
+    if (!options?.keepQuiet) {
+      store.invalidateAll();
+    }
+  };
 
   store.getMemoryStats = () => ({
     subscribersCount: subscribers.size,
