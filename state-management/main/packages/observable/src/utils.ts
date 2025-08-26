@@ -1,5 +1,5 @@
 // utils.tsx
-import { Accessor, PathOrAccessor, ObservableStore, MaxDepth, SafePaths, MetaData, MetaWeakMap } from './types';
+import { Accessor, PathOrAccessor, ObservableStore, MaxDepth, SafePaths, MetaData, MetaWeakMap, SSRStore } from './types';
 
 // Вспомогательная функция для извлечения аргументов
 function extractArgs(funcStr: string): string[] {
@@ -380,45 +380,42 @@ export function getRandomId() {
   return `${Math.floor(performance.now()).toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
+export const getCheckIsSSR = () => { 
+  return typeof window === 'undefined' || typeof process !== 'undefined' || typeof self === 'undefined';
+}
 
 export function ssrStore<T extends object, D extends number = 0>(
-  store: ObservableStore<T, D>,
+  store: SSRStore<T, D>,
   ssrStoreId = 'ssrStoreId_default'
 ) {
+  const ssrEnhancedStore = store as SSRStore<T, D>;
 
-  const ssrEnhancedStore = store as ObservableStore<T, D> & {
-    snapshot: () => Promise< T>;
-    getSerializedStore: (type:'window' | 'scriptTag') => Promise<string>;
-    getSSRStoreId: () => string,
-    hydrate: () => void;
-    hydrateWithDocument: () => void;
-    getIsSSR: () => boolean;
-  };;
+  let lastPromise: Promise<void> = Promise.resolve();
 
-  const pendingPromises: Promise<void>[] = [];
   const originalAsyncUpdate = ssrEnhancedStore.asyncUpdate;
-  //@ts-expect-error
-  ssrEnhancedStore.asyncUpdate = async (...args) => {
-    const promise = originalAsyncUpdate(...args);
-    pendingPromises.push(promise);
-    return promise;
-  };
-  ssrEnhancedStore.asyncUpdate.quiet = async (...args) => {
-    const promise = originalAsyncUpdate(...args);
-    pendingPromises.push(promise);
-    return promise;
-  };
 
-  ssrEnhancedStore.getIsSSR = () => { 
-    return typeof window === 'undefined'
+
+  function enqueueUpdate(fn: (...args: any[]) => Promise<void>) {
+    return (...args: any[]) => {
+      const next = lastPromise.then(() => fn(...args));
+      lastPromise = next.catch(() => {});
+      return next;
+    };
   }
+
+  //@ts-expect-error
+  ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate);
+  ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate);
+
+  ssrEnhancedStore.getIsSSR = () => {
+    return getCheckIsSSR();
+  };
 
   ssrEnhancedStore.getSSRStoreId = () => ssrStoreId;
 
   ssrEnhancedStore.snapshot = async () => {
     try {
-      await Promise.all(pendingPromises);
-      pendingPromises.length = 0;
+      await lastPromise; // ждём всю очередь
       return store.getRawStore();
     } catch (error) {
       console.error('Failed to create snapshot:', error);
@@ -426,34 +423,35 @@ export function ssrStore<T extends object, D extends number = 0>(
     }
   };
 
-  ssrEnhancedStore.getSerializedStore = async (type: 'window' | 'scriptTag' = 'scriptTag') => {
+  ssrEnhancedStore.getSerializedStore = async (type: 'window' | 'scriptTag' | 'serializedData') => {
     const snapshot = await ssrEnhancedStore.snapshot();
     const serialized = JSON.stringify(snapshot);
     return {
       window: `window['${ssrStoreId}'] = ${serialized};`,
-      scriptTag: `<script id="${ssrStoreId}" type="application/json">${serialized}</script>`
+      scriptTag: `<script id="${ssrStoreId}" type="application/json">${serialized}</script>`,
+      serializedData: serialized,
     }[type];
   };
 
   ssrEnhancedStore.hydrate = () => {
-    if (!ssrEnhancedStore.getIsSSR() && window[ssrStoreId]) {
+    if (!ssrEnhancedStore.getIsSSR() && (window as any)[ssrStoreId]) {
       const stateElement = document.getElementById(ssrStoreId);
-      ssrEnhancedStore.setRawStore(window[ssrStoreId]);
-      delete window[ssrStoreId];
+      ssrEnhancedStore.setRawStore((window as any)[ssrStoreId]);
+      delete (window as any)[ssrStoreId];
       stateElement?.remove();
     }
   };
-  
-  ssrEnhancedStore.hydrateWithDocument = () => {
+
+  ssrEnhancedStore.hydrateWithDocument = (delay = 0, callback?: () => void) => {
     if (!ssrEnhancedStore.getIsSSR()) {
-      const hydrateOnDomLoaded = () => {
-        ssrEnhancedStore.hydrate();
-        document.removeEventListener('DOMContentLoaded', hydrateOnDomLoaded);
+      window.onload = () => {
+        setTimeout(() => {
+          ssrEnhancedStore.hydrate();
+          callback?.();
+        }, delay);
       };
-      document.addEventListener('DOMContentLoaded', hydrateOnDomLoaded);
     }
-  }
+  };
 
-  return ssrEnhancedStore
+  return ssrEnhancedStore;
 }
-

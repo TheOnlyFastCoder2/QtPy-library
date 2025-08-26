@@ -302,6 +302,8 @@ export type MemoryStats = {
   historyEntries: Array<{ path: string; length: number }>;
   /** Количество активных путей, на которые подписались. */
   activePathsCount: number;
+  /** Число AbortController для активных асинхронных обновлений.*/
+  abortersCount: number;
 };
 
 /**
@@ -323,6 +325,16 @@ export type MetaData = {
 };
 
 export type PathLimitEntry<T, D extends number> = [PathOrAccessor<T, D>, number];
+
+export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
+  snapshot: () => Promise<T>;
+  getSerializedStore: (type: 'window' | 'scriptTag' | 'serializedData') => Promise<string>;
+  getSSRStoreId: () => string;
+  hydrate: () => void;
+  hydrateWithDocument: (delay?: number, callback?: () => void) => void;
+  getIsSSR: () => boolean;
+  updateSSR: ObservableStore<T, D>['asyncUpdate'];
+};
 
 /**
  * Интерфейс реактивного хранилища состояния.
@@ -350,7 +362,12 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param options.keepQuiet - Если true, не триггерить подписчиков.
    */
   setRawStore(newState: T, options?: { keepQuiet?: boolean }): void;
-
+  /**
+   * Проверяет, был ли асинхронный запрос по указанному пути отменён.
+   * @param path - Строковый путь или Accessor.
+   * @returns `true`, если запрос был отменён, иначе `false`.
+   */
+  isAborted<const P extends PathOrAccessor<T, D>>(path: P): boolean;
   /**
    * Очищает историю изменений (undo/redo) для указанного пути в состоянии.
    *

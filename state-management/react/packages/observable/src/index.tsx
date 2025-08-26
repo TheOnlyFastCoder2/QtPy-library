@@ -1,6 +1,6 @@
-import { useSyncExternalStore, useRef, useEffect } from "react";
-import { createObservableStore } from "@qtpy/state-management-observable";
-import { getRandomId, ssrStore } from "@qtpy/state-management-observable/utils";
+import { useSyncExternalStore, useRef, useEffect } from 'react';
+import { createObservableStore } from '@qtpy/state-management-observable';
+import { getRandomId, ssrStore } from '@qtpy/state-management-observable/utils';
 import type {
   Accessor,
   PathOrAccessor,
@@ -8,11 +8,25 @@ import type {
   PathOrError,
   MaxDepth,
   PathLimitEntry,
-} from "@qtpy/state-management-observable/types";
-import type { ReactStore, useStoreReturn } from "./types";
+  SSRStore,
+} from '@qtpy/state-management-observable/types';
+import type { ReactStore, useStoreReturn } from './types';
 
 export { createObservableStore, getRandomId, ssrStore };
 
+type WithSSRStore<T extends object, D extends number = 0> = SSRStore<T, D> & ReactStore<T, D>;
+
+export function createReactStore<T extends object, D extends number = 0>(
+  initialState: T,
+  middlewares: Middleware<T, D>[],
+  options: { ssrStoreId: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
+): WithSSRStore<T,D>;
+
+export function createReactStore<T extends object, D extends number = 0>(
+  initialState: T,
+  middlewares?: Middleware<T, D>[],
+  options?: { ssrStoreId: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
+): ReactStore<T, D>;
 
 /**
  * Создаёт ObservableStore и оборачивает его React-хуками
@@ -25,29 +39,24 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   middlewares: Middleware<T, D>[] = [],
   options: {
     customLimitsHistory?: PathLimitEntry<T, D>[];
+    ssrStoreId?: string;
+    isSSR?: boolean
   } = {}
-): ReactStore<T, D> {
-  const baseStore = createObservableStore<T, D>(
-    initialState,
-    middlewares,
-    options as any
-  );
-  const store = baseStore as ReactStore<T, D>;
+): ReactStore<T, D> | WithSSRStore<T, D> {
+  const baseStore = createObservableStore<T, D>(initialState, middlewares, options as any);
+  const store = baseStore as ReactStore<T, D> | WithSSRStore<T, D>;
 
   /**
    * Хук для подписки на несколько путей в сторе, без useCallback
    */
-  function useStore<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
-  >(
+  function useStore<const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]>(
     paths: P,
     options?: {
-      cacheKeys?: PathOrAccessor<T, D>[],
-      refInInvalidation?: React.RefObject<boolean>
+      cacheKeys?: PathOrAccessor<T, D>[];
+      refInInvalidation?: React.RefObject<boolean>;
     }
   ): useStoreReturn<T, P, D> {
     const cacheKeys = [...paths, ...(options?.cacheKeys ?? [])];
-
     const snapshotRef = useRef<useStoreReturn<T, P, D>>(
       cacheKeys.map((p) => store.get(p as any)) as useStoreReturn<T, P, D>
     );
@@ -67,7 +76,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
         }) as useStoreReturn<T, P, D>;
 
         if (options?.refInInvalidation) {
-          options.refInInvalidation.current = isCacheKey
+          options.refInInvalidation.current = isCacheKey;
         }
 
         snapshotRef.current = nextSnapshot;
@@ -90,11 +99,9 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   }
 
   /**
- * Хук-эффект: вызывает effect при изменении значений по путям или их инвалидации
- */
-  function useStoreEffect<
-    const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]
-  >(
+   * Хук-эффект: вызывает effect при изменении значений по путям или их инвалидации
+   */
+  function useStoreEffect<const P extends readonly (PathOrError<T, string, D> | Accessor<any>)[]>(
     paths: [...P],
     effect: (values: useStoreReturn<T, P, D>) => void,
     options?: { inInvalidation?: boolean }
@@ -118,12 +125,9 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   };
 
   store.useStore = useStore;
-  store.useField = useField as ReactStore<T, D>["useField"];
+  store.useField = useField as ReactStore<T, D>['useField'];
   store.useEffect = useStoreEffect;
-  store.reloadComponents = reloadComponents as ReactStore<
-    T,
-    D
-  >["reloadComponents"];
+  store.reloadComponents = reloadComponents as ReactStore<T, D>['reloadComponents'];
 
   return store;
 }

@@ -14,50 +14,59 @@
 2. [Пример создания основного store (с middleware)](#пример-создания-основного-store-с-middleware)  
    2.1 [Что делает `DepthPath` и зачем он нужен](#что-делает-DepthPath-и-зачем-он-нужен)  
    2.2 [Что такое `Accessor` и зачем он нужен](#что-такое-Accessor-и-зачем-он-нужен)  
-   2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)   
-   2.4 [Что такое `ssrStore` и зачем он нужен](#что-такое-ssrstore-и-зачем-он-нужен)
+   2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)
 
-3. [API createObservableStore](#api-createobservablestore)  
-   3.1. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
-   3.2. [`store.subscribeToPath(pathOrAccessor, callback, options?)`](#storesubscribetopathpathoraccessor-callback-options)  
-   3.3. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
-   3.4. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
-   3.5. [`store.update(pathOrAccessor, valueOrFn, options)`](#storeupdatepathoraccessor-valueorfn-options)  
-   3.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)  
-   3.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)  
-   3.8 [`store.getRawStore()`](#storegetrawstore)  
-   3.9 [`store.setRawStore()`](#storegetrawstore)  
-   3.10 [`store.invalidateAll()`](#storeinvalidateall)
+3. [API обертки sstStore](#api-обертки-ssrstore)  
+   3.1. [`snapshot()`](#snapshot)  
+   3.2. [`getSerializedStore(type)`](#getserializedstoretype)  
+   3.3. [`getSSRStoreId()`](#getssrstoreid)  
+   3.4. [`hydrate()`](#hydrated)  
+   3.5. [`hydrateWithDocument(delay?, callback?)`](#hydratewithdocumentdelay-callback)  
+   3.6. [`getIsSSR`](#getisssr)  
+   3.7. [`updateSSR`](#updatessr)
 
-4. [Асинхронные обновления](#асинхронные-обновления)  
-   4.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
-   4.2. [`store.cancelAsyncUpdates(pathOrAccessor?)`](#storecancelasyncupdatespathoraccessor)  
-   4.3. [`store.debounced(callback, delay)`](#storedebouncedcallback-delay)
+4. [API createObservableStore](#api-createobservablestore)  
+   4.1. [`store.subscribe(callback, cacheKeys?)`](#storesubscribecallback-cachekeys)  
+   4.2. [`store.subscribeToPath(pathOrAccessor, callback, options?)`](#storesubscribetopathpathoraccessor-callback-options)  
+   4.3. [`store.invalidate(cacheKey)`](#storeinvalidatecachekey)  
+   4.4. [`store.get(pathOrAccessor)`](#storegetpathoraccessor)  
+   4.5. [`store.update(pathOrAccessor, valueOrFn, options)`](#storeupdatepathoraccessor-valueorfn-options)  
+   4.6. [`store.resolveValue(pathOrAccessor, valueOrFn)`](#storeresolvevaluepathoraccessor-valueorfn)  
+   4.7. [`store.resolvePath(pathOrAccessor)`](#storeresolvepathpathoraccessor)  
+   4.8 [`store.getRawStore()`](#storegetrawstore)  
+   4.9 [`store.setRawStore()`](#storegetrawstore)  
+   4.10 [`store.invalidateAll()`](#storeinvalidateall)
 
-5. [Батчинг (`store.batch`)](#батчинг-storebatch)
+5. [Асинхронные обновления](#асинхронные-обновления)  
+   5.1. [`store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`](#storeasyncupdatepathoraccessor-asyncupdater-options)  
+   5.2. [`store.cancelAsyncUpdates(pathOrAccessor?)`](#storecancelasyncupdatespathoraccessor)  
+   5.3. [`store.debounced(callback, delay)`](#storedebouncedcallback-delay)  
+   5.4. [`store.isAborted(pathOrAccessor)`](#storeisabortedpathoraccessor)
 
-6. [История (undo/redo)](#история-undoredo)  
-   6.1. [`store.undo(pathOrAccessor, spliceIndices?)`](#storeundopathoraccessor-spliceindices)  
-   6.2. [`store.redo(pathOrAccessor, spliceIndices?)`](#storeredopathoraccessor-spliceindices)  
-   6.4. [`store.getUndo(pathOrAccessor, step)`](#storegetundopathoraccessor-step)  
-   6.3. [`store.getRedo(pathOrAccessor, step)`](#storegetredopathoraccessor-step)  
-   6.5. [`store.getHistory(pathOrAccessor)`](#storegetHistorypathoraccessor)  
-   6.6. [`store.clearHistoryPath(pathOrAccessor, mode?, spliceIndices?)`](#storeclearhistorypathpathoraccessor-mode-spliceindices)  
-   6.7. [`store.clearAllHistory()`](#storeclearAllHistory)
+6. [Батчинг (`store.batch`)](#батчинг-storebatch)
 
-7. [Статистика и очистка](#статистика-и-очистка)  
-   7.1. [`store.getMemoryStats()`](#storegetmemorystats)  
-   7.2. [`store.clearStore()`](#storeclearstore)
+7. [История (undo/redo)](#история-undoredo)  
+   7.1. [`store.undo(pathOrAccessor, spliceIndices?)`](#storeundopathoraccessor-spliceindices)  
+   7.2. [`store.redo(pathOrAccessor, spliceIndices?)`](#storeredopathoraccessor-spliceindices)  
+   7.4. [`store.getUndo(pathOrAccessor, step)`](#storegetundopathoraccessor-step)  
+   7.3. [`store.getRedo(pathOrAccessor, step)`](#storegetredopathoraccessor-step)  
+   7.5. [`store.getHistory(pathOrAccessor)`](#storegetHistorypathoraccessor)  
+   7.6. [`store.clearHistoryPath(pathOrAccessor, mode?, spliceIndices?)`](#storeclearhistorypathpathoraccessor-mode-spliceindices)  
+   7.7. [`store.clearAllHistory()`](#storeclearAllHistory)
 
-8. [Промежуточная обработка (Middleware)](#промежуточная-обработка-middleware)  
-   8.1. [Когда срабатывает middleware](#1-когда-срабатывает-middleware)  
-   8.2. [Изменение `value` внутри middleware](#2-изменение-value-внутри-middleware)  
-   8.3. [Блокировка изменения](#3-блокировка-изменения)  
-   8.4. [Последовательность нескольких middleware](#4-последовательность-нескольких-middleware)
+8. [Статистика и очистка](#статистика-и-очистка)  
+   8.1. [`store.getMemoryStats()`](#storegetmemorystats)  
+   8.2. [`store.clearStore()`](#storeclearstore)
 
-9. [Основные преимущества такого подхода](#основные-преимущества-такого-подхода)
+9. [Промежуточная обработка (Middleware)](#промежуточная-обработка-middleware)  
+   9.1. [Когда срабатывает middleware](#1-когда-срабатывает-middleware)  
+   9.2. [Изменение `value` внутри middleware](#2-изменение-value-внутри-middleware)  
+   9.3. [Блокировка изменения](#3-блокировка-изменения)  
+   9.4. [Последовательность нескольких middleware](#4-последовательность-нескольких-middleware)
 
-10. [Вывод](#вывод)
+10. [Основные преимущества такого подхода](#основные-преимущества-такого-подхода)
+
+11. [Вывод](#вывод)
 
 ---
 
@@ -460,36 +469,6 @@ store.invalidateAll();
 
 ## Асинхронные обновления
 
-### `store.debounced(callback, delay)`
-
-Метод debounced создаёт функцию с отложенным вызовом, которая будет выполнена только после паузы между последовательными вызовами. Это особенно полезно для асинхронных операций, таких как HTTP-запросы, где важно избегать лишней нагрузки и отменять устаревшие запросы.
-
-**Пример использования:**
-
-```ts
-type DepthPath = 1;
-const debouncedFetchItems = store.debounced(
-  (path: PathOrAccessor<StoreState, DepthPath>, userId: number) => {
-    store.asyncUpdate(
-      path,
-      async (currentItems, signal) => {
-        const response = await fetch(`/api/items?user=${userId}`, { signal });
-        const data = await response.json();
-        return data.list;
-      },
-      { abortPrevious: true }
-    );
-  },
-  1000 // задержка 1 секунда
-);
-
-// Использование
-debouncedFetchItems('items', 123);
-debouncedFetchItems('items', 456);
-debouncedFetchItems.cancel();
-debouncedFetchItems(($) => $.items, 452363);
-```
-
 ### `store.asyncUpdate(pathOrAccessor, asyncUpdater, options?)`
 
 Асинхронный метод обновления - полезно если нужно отменить предыдущий запрос. При включённой опции `abortPrevious: true`, все незавершённые обновления по тому же пути автоматически прерываются, исключая гонки данных и обеспечивая корректное состояние. Это удобно при вводе в поле, дебаунсе, сетевых запросах или при переключении контекста.
@@ -551,6 +530,61 @@ debouncedFetchItems(($) => $.items, 452363);
 
   // Отменить только для пути "items":
   store.cancelAsyncUpdates('items');
+  ```
+
+---
+
+### `store.debounced(callback, delay)`
+
+Метод debounced создаёт функцию с отложенным вызовом, которая будет выполнена только после паузы между последовательными вызовами. Это особенно полезно для асинхронных операций, таких как HTTP-запросы, где важно избегать лишней нагрузки и отменять устаревшие запросы.
+
+**Пример использования:**
+
+```ts
+type DepthPath = 1;
+const debouncedFetchItems = store.debounced(
+  (path: PathOrAccessor<StoreState, DepthPath>, userId: number) => {
+    store.asyncUpdate(
+      path,
+      async (currentItems, signal) => {
+        const response = await fetch(`/api/items?user=${userId}`, { signal });
+        const data = await response.json();
+        return data.list;
+      },
+      { abortPrevious: true }
+    );
+  },
+  1000 // задержка 1 секунда
+);
+
+// Использование
+debouncedFetchItems('items', 123);
+debouncedFetchItems('items', 456);
+debouncedFetchItems.cancel();
+debouncedFetchItems(($) => $.items, 452363);
+```
+
+### `store.isAborted(pathOrAccessor)`
+
+Проверяет, был ли прерван (`abort`) асинхронный апдейт по указанному пути или Accessor. Метод использует внутренний `AbortController`, связанный с этим путём.
+
+- Возвращает `true`, если для данного пути существует контроллер и его `signal.aborted === true`.
+
+- Возвращает `false`, если контроллера нет или обновление ещё не отменено.
+
+- **Пример:**
+
+  ```ts
+  // Запускаем асинхронное обновление
+  const promise = store.asyncUpdate('counter', async (current, signal) => {
+    await new Promise((r) => setTimeout(r, 1000));
+    return current + 1;
+  });
+
+  // Прерываем по ключу 'counter'
+  store.abort('counter');
+
+  console.log(store.isAborted('counter')); // true
   ```
 
 ---
@@ -623,7 +657,7 @@ const store = createObservableStore<AppState, DepthPath>(initialState, [], {
 
 ### `store.redo(pathOrAccessor, spliceIndices?)`
 
-Что делает: Повторяет (redo) последнее отменённое изменение по указанному пути или Accessor. Параметр `spliceIndices` (опционально) — кортеж `[start, deleteCount]`, задающий индексы для удаления элементов из redo-стека. Если есть отменённое значение, применяет его и возвращает `true`. Иначе возвращает `false`.
+Повторяет (redo) последнее отменённое изменение по указанному пути или Accessor. Параметр `spliceIndices` (опционально) — кортеж `[start, deleteCount]`, задающий индексы для удаления элементов из redo-стека. Если есть отменённое значение, применяет его и возвращает `true`. Иначе возвращает `false`.
 
 - **Пример:**
 
@@ -744,6 +778,7 @@ store.clearAllHistory();
   - `pathSubscribersCount` — число подписок по конкретным путям/Accessor’ам.
   - `historyEntries` — список всех путей и длина их истории.
   - `activePathsCount` — число активных путей (за которыми кто-то следит).
+  - `abortersCount` — Число активных асинхронных обновлений.
 
 - **Пример:**
 
@@ -751,6 +786,7 @@ store.clearAllHistory();
   const stats = store.getMemoryStats();
   console.log('Глобальных подписчиков:', stats.subscribersCount);
   console.log('Подписок по путям:', stats.pathSubscribersCount);
+  console.log('Асинхронные обновления:', stats.abortersCount);
   console.log('История:', stats.historyEntries);
   ```
 
@@ -911,12 +947,264 @@ store.update('user.name', 'Dmitry');
 
 ---
 
+## API обертки ssrStore
+
+`ssrStore` — функция, расширяющая `ObservableStore` для поддержки серверного рендеринга (SSR).  
+Она добавляет методы для сериализации состояния на сервере, гидратации на клиенте и безопасного управления асинхронными обновлениями.
+
+### Сигнатура
+
+```typescript
+function ssrStore<T extends object, D extends number = 0, S extends ObservableStore<T, D> = ObservableStore<T, D>>(
+  store: S,
+  ssrStoreId = 'ssrStoreId_default'
+): S & {
+  snapshot: () => Promise<T>;
+  getSerializedStore: (type: 'window' | 'scriptTag' | 'serializedData') => Promise<string>;
+  getSSRStoreId: () => string;
+  hydrate: () => void;
+  hydrateWithDocument: (delay?: number, callback?: () => void) => void;
+  getIsSSR: () => boolean;
+  updateSSR: ObservableStore<T, D>['asyncUpdate'];
+};
+```
+### Параметры
+
+- `store`: Экземпляр `ObservableStore`.
+- `ssrStoreId`: Уникальный идентификатор стора, чтобы выполнить гидратацию.
+
+---
+### Инициализация
+При передачи  свойства `ssrStoreId`, stm оборачивается в ssrStore: 
+
+```tsx
+export const stGlobal = createObservableStore<State>({
+  counter: 0,
+  items: [],
+}, [], {ssrStoreId: 'myStoreId'});
+
+stGlobal.updateSSR('counter', async (c) => c + 1);
+```
+## Методы
+
+### `snapshot()`
+
+Возвращает текущее состояние стора после завершения всех асинхронных обновлений. Ждёт всю очередь асинхронных операций.
+
+- **Пример:**
+
+```ts
+await stGlobal.updateSSR('counter', async (c) => c + 1);
+await stGlobal.updateSSR('counter', async (c) => c + 5);
+
+const snap = await stGlobal.snapshot();
+console.log(snap.counter); // 6
+```
+
+---
+
+### `getSerializedStore(type)`
+
+Сериализует состояние в JSON.
+
+- `type: 'window'` → Возвращает строку `window[ssrStoreId] = ${serializedData}`.
+
+- `type: 'scriptTag'` → Возвращает `<script>` тег с JSON-данными.
+
+- `type: 'serializedData'` → Возвращает только сериализованные данные.
+
+- **Пример:**
+
+```ts
+const json = await stGlobal.getSerializedStore('serializedData');
+// {"counter":0,"items":[]}
+
+const window = await stGlobal.getSerializedStore('window');
+// window['myStoreID'] = {"counter":0,"items":[]};
+
+const script = await stGlobal.getSerializedStore('scriptTag');
+// <script id="myStoreID" type="application/json">
+//  window['myStoreID'] = {"counter":0,"items":[]};
+// </script>
+```
+
+#### пример на сервере
+
+```ts
+res.send(`
+  <html>
+    <body>
+      <div id="root">${html}</div>
+      ${await stGlobal.getSerializedStore('scriptTag')}
+    </body>
+  </html>
+`);
+```
+
+#### пример на ssr компонента
+
+```ts
+<script
+  id={stGlobal.getSSRStoreId()}
+  dangerouslySetInnerHTML={{
+    __html: await stGlobal.getSerializedStore('window'),
+  }}
+/>
+```
+
+---
+
+### `getSSRStoreId()`
+
+Возвращает идентификатор стора (`ssrStoreId`).
+
+- **Пример:**
+
+```ts
+console.log(stGlobal.getSSRStoreId()); // "myStoreID"
+```
+
+---
+
+### `hydrate()`
+
+Выполняет гидратацию на клиенте: восстанавливает состояние из `window[ssrStoreId]` и удаляет временные данные из DOM и `window`.
+
+- **Пример:**
+
+```ts
+// после того как сервер вставил данные в window.myStoreID
+stGlobal.hydrate();
+console.log(stGlobal.get('counter')); // значение из server-side snapshot
+```
+
+---
+
+### `hydrateWithDocument(delay?, callback?)`
+
+Выполняет гидратацию на клиенте после события `window.onload`.
+
+- Можно указать задержку (мс).
+- Можно передать `callback`, который выполнится после гидратации.
+- **Пример:**
+
+```ts
+// Без задержки
+stGlobal.hydrateWithDocument();
+
+// С задержкой
+stGlobal.hydrateWithDocument(1000);
+
+// С колбэком (например, для React-рендера)
+stGlobal.hydrateWithDocument(0, () => {
+  createRoot(document.getElementById('root')!).render(<App />);
+});
+```
+
+---
+
+### `getIsSSR()`
+
+Возвращает `true`, если код выполняется на сервере, иначе `false`.
+
+- **Пример:**
+
+```ts
+if (stGlobal.getIsSSR()) {
+  console.log('Работаем на сервере');
+} else {
+  console.log('Работаем в браузере');
+}
+```
+
+---
+
+### `updateSSR()`
+
+Асинхронный метод для обновления состояния с сохранением порядка выполнения. Все вызовы ставятся в очередь и выполняются **строго последовательно**. Сигнатура полностью повторяет `asyncUpdate` из `ObservableStore`, включая метод `updateSSR.quiet`.
+
+- `updateSSR(...)` обновляет состояние и уведомляет подписчиков.
+
+- `updateSSR.quiet(...)` обновляет состояние **без уведомления подписчиков**.
+
+- **Пример:**
+
+```ts
+// Очередь обновлений — выполнятся по порядку
+await stGlobal.updateSSR('counter', async (c) => c + 1);
+await stGlobal.updateSSR('counter', async (c) => c + 10);
+
+// "quiet" версия
+await stGlobal.updateSSR.quiet('items', async (arr) => [...arr, 42]);
+
+console.log(stGlobal.get('counter')); // 11
+console.log(stGlobal.get('items')); // [42]
+```
+
+#### Пример для react:
+
+```typescript
+//SSRMain.tsx
+export default async function SSRMain() {
+  return (
+    <>
+      <Test1 />
+      <Test2 />
+      <Test3 />
+    </>
+  );
+}
+
+async function Test1() {
+  await stGlobal.updateSSR(($) => $.counter, async () => 10); // 10
+  return <></>;
+}
+
+async function Test2() {
+  await stGlobal.updateSSR(($) => $.counter, async (prevVal) => prevVal * 20); // 200
+  return <></>;
+}
+
+async function Test3() {
+  return (
+    <head>
+      <script
+        id={stGlobal.getSSRStoreId()}
+        dangerouslySetInnerHTML={{
+          __html: await stGlobal.getSerializedStore('window'),
+        }}
+      />
+    </head>
+  );
+}
+```
+
+---
+
+## Особенности
+
+- Отслеживает асинхронные обновления через `updateSSR`, выполняя их строго последовательно.
+- Поддерживает безопасную передачу состояния между сервером и клиентом.
+- Удаляет временные данные после гидратации.
+- `hydrateWithDocument` обеспечивает гидратацию после полной загрузки DOM.
+
+---
+
 ## Что делает `DepthPath` и зачем он нужен
 
 `DepthPath` управляет тем, насколько глубоко TypeScript будет "раскрывать" вложенные свойства объекта, чтобы сгенерировать возможные строковые пути вида `"user.settings.locale"`, `"items.0"` и т. д.
 
 ```
+
 По умолчанию стоит `DepthPath=0`.
+
+```
+
+**Пример:**
+
+```tsx
+type DepthPath = 3;
+const store = createObservableStore<StoreState, DepthPath>({});
 ```
 
 ---
@@ -1154,118 +1442,6 @@ store.invalidate('cacheKeys.lol.items.0');
 const idx = 1;
 store.invalidate((t) => store.$['cacheKeys'].lol.items[t(idx)]);
 ```
-
----
-
-## Что такое `ssrStore` и зачем он нужен
-
-`ssrStore` — функция, расширяющая `ObservableStore` для поддержки серверного рендеринга (SSR). Она добавляет методы для сериализации состояния на сервере и гидратации на клиенте.
-
-### Сигнатура
-
-```typescript
-function ssrStore<T extends object, D extends number = 0>(
-  store: ObservableStore<T, D>,
-  ssrStoreId = 'ssrStoreId_default'
-): ObservableStore<T, D> & {
-    snapshot: () => Promise< T>;
-    getSerializedStore: (type:'window' | 'scriptTag') => Promise<string>;
-    getSSRStoreId: () => string,
-    hydrate: () => void;
-    hydrateWithDocument: () => void;
-    getIsSSR: () => boolean;
-};
-```
-
-### Параметры
-
-- `store`: Экземпляр `ObservableStore`.
-- `ssrStoreId`: Уникальный идентификатор стора (по умолчанию `'ssrStoreId_default'`).
-
-## Методы
-
-1. **snapshot(): Promise<T>**
-
-   - Возвращает текущее состояние стора после завершения всех асинхронных обновлений.
-   - Очищает очередь асинхронных операций.
-
-2. **getSerializedStore(type: 'window' | 'scriptTag'): Promise<string>**
-
-   - Сериализует состояние в JSON.
-   - `type: 'window'`: Возвращает JS-код для `window[ssrStoreId]`.
-   - `type: 'scriptTag'`: Возвращает `<script>` тег с JSON-данными.
-
-3. **getSSRStoreId(): string**
-
-   - Возвращает идентификатор стора (`ssrStoreId`).
-
-4. **hydrate(): void**
-   - Выполняет гидратацию на клиенте: восстанавливает состояние из `window[ssrStoreId]` и удаляет временные данные из DOM и `window`.
-
-5. **hydrateWithDocument(): void**
-   - Выполняет гидратацию на клиенте после события `DOMContentLoaded`.
-   - Автоматически удаляет слушатель события после выполнения.
-
-5. **getIsSSR(): boolean**
-   - Возвращает `true`, если код выполняется на сервере (`typeof window === 'undefined'`), иначе `false`.
-
-### Пример использования
-
-#### Инициализация
-
-```typescript
-interface State {
-  counter: number;
-  items: number[];
-}
-
-const stGlobal = ssrStore(
-  createObservableStore<State>({
-    counter: 0,
-    items: [],
-  }),
-  'myStore'
-);
-```
-
-#### Сервер
-
-```typescript
-res.send(`
-  <html>
-    <body>
-      <div id="root">${html}</div>
-      ${await stGlobal.getSerializedStore('scriptTag')}
-    </body>
-  </html>
-`);
-```
-
-#### SSR компонент в React
-
-```typescript
-<script
-  id={stGlobal.getSSRStoreId()}
-  dangerouslySetInnerHTML={{
-    __html: await stGlobal.getSerializedStore('window'),
-  }}
-/>
-```
-#### SSR компонент в React
-
-### Гидрация на клиенте
-```typescript
-// Гидратация после загрузки DOM
-stGlobal.hydrateWithDocument();
-```
-
-### Особенности
-
-- Отслеживает асинхронные обновления (`asyncUpdate`), ожидая их перед созданием снимка.
-- Поддерживает безопасную передачу состояния между сервером и клиентом.
-- Удаляет временные данные после гидратации.
-- `hydrateWithDocument` обеспечивает гидратацию после полной загрузки DOM.
-
 
 ## Основные преимущества такого подхода
 

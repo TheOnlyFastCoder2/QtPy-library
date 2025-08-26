@@ -8,6 +8,7 @@ import {
   Accessor,
   MetaData,
   PathLimitEntry,
+  SSRStore,
 } from './types';
 import {
   normalizeCacheKey,
@@ -21,15 +22,18 @@ import {
   withMetaSupport,
   calculateSnapshotHash,
   getRandomId,
+  ssrStore,
 } from './utils';
-
 
 class HistoryManager<T extends object, D extends number = 0> {
   private undoStack = new Map<string, any[]>();
   private redoStack = new Map<string, any[]>();
   private perPathMaxLength: Map<string, number>;
 
-  constructor(pathLimits: PathLimitEntry<T, D>[] = [], resolvePath: (path: string | Accessor<any>) => string) {
+  constructor(
+    pathLimits: PathLimitEntry<T, D>[] = [],
+    resolvePath: (path: string | Accessor<any>) => string
+  ) {
     this.perPathMaxLength = new Map();
     for (const [key, max] of pathLimits) {
       //@ts-expect-error
@@ -77,7 +81,11 @@ class HistoryManager<T extends object, D extends number = 0> {
     };
   }
 
-  private spliceStack(sourceStack: any[], targetStack: any[], spliceIndices?: [number, number]): any | undefined {
+  private spliceStack(
+    sourceStack: any[],
+    targetStack: any[],
+    spliceIndices?: [number, number]
+  ): any | undefined {
     if (spliceIndices) {
       const [start, deleteCount] = spliceIndices;
       if (start < 0 || start >= sourceStack.length || deleteCount <= 0) {
@@ -205,11 +213,24 @@ class HistoryManager<T extends object, D extends number = 0> {
 
 export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
+  middlewares: Middleware<T, D>[],
+  options: { ssrStoreId: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
+): SSRStore<T, D>;
+
+export function createObservableStore<T extends object, D extends number = 0>(
+  initialState: T,
+  middlewares?: Middleware<T, D>[],
+  options?: { ssrStoreId: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
+): ObservableStore<T, D>;
+
+export function createObservableStore<T extends object, D extends number = 0>(
+  initialState: T,
   middlewares: Middleware<T, D>[] = [],
   options: {
     customLimitsHistory?: PathLimitEntry<T, D>[];
+    ssrStoreId?: string;
   } = {}
-): ObservableStore<T, D> {
+): ObservableStore<T, D> | SSRStore<T, D> {
   let rawState: T = { ...initialState };
 
   let batching = false;
@@ -238,7 +259,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const segments = splitPath(path);
     const lastKey = segments.pop()!;
     const parentObj = segments.reduce((o: any, k) => {
-      if (o == null) throw new Error(`Невозможно установить по пути "${path}" — промежуточное значение undefined`);
+      if (o == null)
+        throw new Error(
+          `Невозможно установить по пути "${path}" — промежуточное значение undefined`
+        );
       return o[k as keyof typeof o];
     }, rawState as any);
     parentObj[lastKey as keyof typeof parentObj] = val;
@@ -437,7 +461,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
-  store.debounced = (callback: (...args: any[]) => void, delay: number): ((...args: any[]) => void) => {
+  store.debounced = (
+    callback: (...args: any[]) => void,
+    delay: number
+  ): ((...args: any[]) => void) => {
     const debounceId = getRandomId();
     let timer: NodeJS.Timeout | null = null;
     const debouncedFn = (...args: any[]) => {
@@ -504,6 +531,27 @@ export function createObservableStore<T extends object, D extends number = 0>(
     return newVal;
   };
 
+  store.cancelAsyncUpdates = (p?: any) => {
+    if (p) {
+      const key = resolve(p);
+      const ctrl = aborters.get(key);
+      if (ctrl) {
+        ctrl.abort();
+        aborters.delete(key);
+      }
+    } else {
+      aborters.forEach((c, key) => {
+        c.abort();
+        aborters.delete(key);
+      });
+    }
+  };
+  store.isAborted = (p: any): boolean => {
+    const key = resolve(p);
+    const ctrl = aborters.get(key);
+    return ctrl ? ctrl.signal.aborted : false;
+  };
+
   store.asyncUpdate = async (
     pathOrAccessor: string | (() => any),
     updater: (cur: any, signal: AbortSignal) => Promise<any>,
@@ -512,27 +560,18 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const { abortPrevious = false, keepQuiet = false } = options ?? {};
     validatePath(pathOrAccessor);
     const pathStr = resolve(pathOrAccessor);
+
     if (abortPrevious) {
-      const prevCtrl = aborters.get(pathStr);
-      if (prevCtrl) {
-        prevCtrl.abort();
-        aborters.delete(pathStr);
-      }
+      store.cancelAsyncUpdates(pathStr);
     }
+
     const ctrl = new AbortController();
-    ctrl.signal.addEventListener(
-      'abort',
-      () => {
-        aborters.delete(pathStr);
-      },
-      { once: true }
-    );
+
     aborters.set(pathStr, ctrl);
 
     try {
       const oldValue = getRaw(pathStr);
       const newValue = await updater(oldValue, ctrl.signal);
-
       if (!ctrl.signal.aborted) {
         store.update(pathStr, newValue, { keepQuiet: keepQuiet });
       }
@@ -764,6 +803,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     historyEntries: historyMgr.getEntries(),
     activePathsCount: pathSubscribers.size,
     debounceTimersCount: debounceTimers.size,
+    abortersCount: aborters.size
   });
 
   let wrappedUpdate = store.update;
@@ -772,5 +812,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   });
   store.update = wrappedUpdate;
 
-  return store as ObservableStore<T, D>;
+  return options.ssrStoreId
+    ? (ssrStore<T, D>(store, options.ssrStoreId) as SSRStore<T, D>)
+    : (store as ObservableStore<T, D>);
 }
