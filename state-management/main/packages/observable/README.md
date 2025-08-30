@@ -16,7 +16,7 @@
    2.2 [Что такое `Accessor` и зачем он нужен](#что-такое-Accessor-и-зачем-он-нужен)  
    2.3 [Что такое `CacheKeys` и зачем они нужен](#что-такое-CacheKeys-и-зачем-они-нужен)
 
-3. [API обертки sstStore](#api-обертки-ssrstore)  
+3. [API обертки ssrStore](#api-обертки-ssrstore)  
    3.1. [`snapshot()`](#snapshot)  
    3.2. [`getSerializedStore(type)`](#getserializedstoretype)  
    3.3. [`getSSRStoreId()`](#getssrstoreid)  

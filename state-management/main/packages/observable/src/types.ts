@@ -276,7 +276,8 @@ export type Unsubscribe = () => void;
  */
 export type UpdateFunction<T, D extends number = MaxDepth> = <const P extends PathOrAccessor<T, D>>(
   path: P,
-  value: ExtractPathReturn<T, P, D>
+  value: ExtractPathReturn<T, P, D>,
+  options: { [key: string]: any; keepQuiet?: boolean }
 ) => void;
 
 /**
@@ -321,6 +322,11 @@ export type SubscriptionMeta = {
 export type MetaWeakMap = WeakMap<object, MetaData>;
 export type MetaData = {
   _prevSignature?: any;
+  _mutated?: boolean;
+  _isWrapped?: boolean;
+  _prevRevision?: string | null;
+  revision?: string;
+
   [key: string]: any;
 };
 

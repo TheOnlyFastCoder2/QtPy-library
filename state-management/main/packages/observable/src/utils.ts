@@ -1,5 +1,14 @@
 // utils.tsx
-import { Accessor, PathOrAccessor, ObservableStore, MaxDepth, SafePaths, MetaData, MetaWeakMap, SSRStore } from './types';
+import {
+  Accessor,
+  PathOrAccessor,
+  ObservableStore,
+  MaxDepth,
+  SafePaths,
+  MetaData,
+  MetaWeakMap,
+  SSRStore,
+} from './types';
 
 // Вспомогательная функция для извлечения аргументов
 function extractArgs(funcStr: string): string[] {
@@ -263,40 +272,46 @@ export function isArrayMethod(name: string, names: string[] = []) {
 }
 
 export function withMetaSupport<T>(target: T, cb: () => void | any): any {
-  //prettier-ignore
-  if (target === null || !(Array.isArray(target) || typeof target === "object" || typeof target === "function")) {
-    return false;
-  }
+  if (target === undefined) return false;
   return cb?.();
 }
 //prettier-ignore
-export function setMetaData<T extends object>(metaMap: MetaWeakMap,target: T,meta: MetaData
+export function setMetaData<T extends object>(metaMap: MetaWeakMap|undefined, target: T, meta: MetaData, primitiveMetaMap?: Map<string, MetaData>, path?: string
 ): void {
-  withMetaSupport(target, () => metaMap.set(target, meta));
+  if (typeof target === 'object' && target !== null && metaMap) {
+    withMetaSupport(target, () => metaMap.set(target, meta));
+  } else if (path) {
+    primitiveMetaMap.set(path, meta);
+  }
 }
 //prettier-ignore
-export function getMetaData<T extends object>(metaMap: MetaWeakMap,target: T): MetaData | undefined {
-  return withMetaSupport(target, () => metaMap.get(target));
+export function getMetaData<T extends object>(metaMap: WeakMap<object, MetaData>, target: T, primitiveMetaMap?: Map<string, MetaData>, path?: string): MetaData | undefined {
+  if (typeof target === 'object' && target !== null) {
+    return withMetaSupport(target, () => metaMap.get(target));
+  } else if (path) {
+    return primitiveMetaMap?.get(path);
+  }
+  return undefined;
 }
 //prettier-ignore
-export function deleteMetaData<T extends object>(metaMap: MetaWeakMap, target: T): void {
-  withMetaSupport(target, () => metaMap.delete(target));
-}
-//prettier-ignore
-export function wrapWithMetaUsingUUID(metaMap: MetaWeakMap, target: any): any {
-  withMetaSupport(target, () => {
-    const currentMeta = getMetaData(metaMap, target) ?? {};
-    setMetaData(metaMap, target, {
-      revision: crypto.randomUUID(),
-      _prevRevision: currentMeta.revision ?? null,
-    });
-  });
-  return target;
+export function deleteMetaData<T extends object>(metaMap: WeakMap<object, MetaData>, target: T, primitiveMetaMap?: Map<string, MetaData>, path?: string): void {
+  if (typeof target === 'object' && target !== null) {
+    withMetaSupport(target, () => metaMap.delete(target));
+  } else if (path) {
+    primitiveMetaMap.delete(path);
+  }
 }
 
 export function calculateSnapshotHash(obj: any): string | false {
   try {
-    const input = stringify(obj);
+    if (obj === null || obj === undefined) {
+      return String(obj); // "null" или "undefined"
+    }
+    if (typeof obj !== 'object') {
+      return String(obj); // Для примитивов возвращаем строковое представление
+    }
+
+    const input = JSON.stringify(obj);
     let hash = 5381;
     for (let i = 0; i < input.length; i++) {
       const code = input.charCodeAt(i);
@@ -308,81 +323,13 @@ export function calculateSnapshotHash(obj: any): string | false {
   }
 }
 
-export function stringify(root: any): string {
-  type StackItem = string | { value: any; parentIsArray?: boolean };
-
-  const stack: StackItem[] = [{ value: root }];
-  const out: string[] = [];
-  const seen = new WeakSet();
-
-  while (stack.length > 0) {
-    const current = stack.pop()!;
-
-    if (typeof current === 'string') {
-      out.push(current);
-      continue;
-    }
-
-    let { value, parentIsArray } = current;
-
-    // Обработка примитивов
-    if (value == null || typeof value !== 'object') {
-      if (value === undefined) {
-        out.push(parentIsArray ? 'null' : '');
-      } else if (typeof value === 'number') {
-        out.push(isFinite(value) ? value.toString() : 'null');
-      } else {
-        out.push(JSON.stringify(value));
-      }
-      continue;
-    }
-
-    // Проверка циклических ссылок
-    if (seen.has(value)) {
-      out.push('"__cycle__"');
-      continue;
-    }
-    seen.add(value);
-
-    // Обработка массивов и объектов
-    if (Array.isArray(value)) {
-      if (value.length === 0) {
-        out.push('[]');
-        continue;
-      }
-      stack.push(']');
-      for (let i = value.length - 1; i >= 0; i--) {
-        stack.push({ value: value[i], parentIsArray: true });
-        if (i > 0) stack.push(',');
-      }
-      stack.push('[');
-    } else {
-      const keys = Object.keys(value);
-      if (keys.length === 0) {
-        out.push('{}');
-        continue;
-      }
-      stack.push('}');
-      for (let i = keys.length - 1; i >= 0; i--) {
-        const key = keys[i];
-        stack.push({ value: value[key] });
-        stack.push(`"${key}":`);
-        if (i > 0) stack.push(',');
-      }
-      stack.push('{');
-    }
-  }
-
-  return out.join('');
-}
-
 export function getRandomId() {
   return `${Math.floor(performance.now()).toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
 
-export const getCheckIsSSR = () => { 
+export const getCheckIsSSR = () => {
   return typeof window === 'undefined' || typeof process !== 'undefined' || typeof self === 'undefined';
-}
+};
 
 export function ssrStore<T extends object, D extends number = 0>(
   store: SSRStore<T, D>,
@@ -394,7 +341,6 @@ export function ssrStore<T extends object, D extends number = 0>(
 
   const originalAsyncUpdate = ssrEnhancedStore.asyncUpdate;
 
-
   function enqueueUpdate(fn: (...args: any[]) => Promise<void>) {
     return (...args: any[]) => {
       const next = lastPromise.then(() => fn(...args));
@@ -405,7 +351,7 @@ export function ssrStore<T extends object, D extends number = 0>(
 
   //@ts-expect-error
   ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate);
-  ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate);
+  ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate.quiet);
 
   ssrEnhancedStore.getIsSSR = () => {
     return getCheckIsSSR();
@@ -454,4 +400,144 @@ export function ssrStore<T extends object, D extends number = 0>(
   };
 
   return ssrEnhancedStore;
+}
+
+export function isPathValid(state: any, path: string): boolean {
+  const segments = splitPath(path);
+  let current = state;
+  for (const segment of segments) {
+    if (current == null || typeof current !== 'object') {
+      return false;
+    }
+    current = current[segment];
+  }
+  return true;
+}
+
+export function getByPath(obj: any, path: string): any {
+  if (!path) return obj;
+  const segments = splitPath(path);
+  let current = obj;
+  for (const seg of segments) {
+    if (current == null) return undefined;
+    current = current[seg];
+  }
+  return current;
+}
+
+const MUTATING_METHODS = {
+  array: ['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin'],
+  object: ['assign', 'defineProperty', 'defineProperties'],
+};
+
+export class WrapArray extends Array {
+  constructor(...args: any[]) {
+    super(...args);
+  }
+}
+
+export function wrapArrayMethods(node: any, metaMap: WeakMap<object, MetaData>) {
+  if (!Array.isArray(node) || getMetaData(metaMap, node)?._isWrapped) return node;
+  MUTATING_METHODS.array.forEach((method) => {
+    WrapArray.prototype[method] = function (...args: any[]) {
+        withMetaSupport(this, () => {
+          setMetaData(metaMap, this, {
+            _prevSignature: 'CHANGED_METHOD',
+            _mutated: true,
+            _isWrapped: true,
+          });
+        });
+        return Array.prototype[method].apply(this, args);
+      };
+  });
+
+  Object.setPrototypeOf(node, WrapArray.prototype);
+  setMetaData(metaMap, node, { _isWrapped: true });
+
+  return node as WrapArray;
+}
+
+export class WrapObject extends Object {
+  constructor(...args: any[]) {
+    super(...args);
+  }
+}
+
+export function wrapObjectMethods(node: object, metaMap: WeakMap<object, MetaData>) {
+  if (typeof node !== 'object' || node === null || getMetaData(metaMap, node)?._isWrapped) return node;
+
+  MUTATING_METHODS.object.forEach((method) => {
+    if (!(method in WrapObject.prototype)) {
+      WrapObject.prototype[method] = function (...args: any[]) {
+        withMetaSupport(this, () => {
+          setMetaData(metaMap, this, {
+            _prevSignature: 'CHANGED_METHOD',
+            _mutated: true,
+            _isWrapped: true,
+          });
+        });
+
+        return Object.prototype[method].apply(this, ...args);
+      };
+    }
+  });
+
+  Object.setPrototypeOf(node, WrapObject.prototype);
+  setMetaData(metaMap, node, { _isWrapped: true });
+  return node as WrapArray;
+}
+
+export function wrapNode(node: any, parent: any, key: string | number | null, metaMap: WeakMap<object, MetaData>): any {
+  let wrapped = node;
+
+  if (Array.isArray(node)) {
+    wrapped = wrapArrayMethods(node, metaMap);
+  } else if (node && typeof node === 'object') {
+    wrapped = wrapObjectMethods(node, metaMap);
+  }
+  if (wrapped !== node && parent && key != null) {
+    parent[key] = wrapped;
+  }
+
+  return wrapped;
+}
+
+export function* iterateObjectTree(
+  obj: any,
+  showPrimitive: boolean = true,
+  visited = new WeakSet(),
+  currentPath: string = '',
+  parent: any = null,
+  parentKey: string | number | null = null
+): IterableIterator<{ node: any; path: string; parent: any; key: string | number | null }> {
+  if (obj == undefined || obj == null || typeof obj !== 'object' || visited.has(obj)) {
+    return;
+  }
+  visited.add(obj);
+
+  yield { node: obj, path: currentPath, parent, key: parentKey };
+
+  if (Array.isArray(obj)) {
+    for (let i = obj.length - 1; i >= 0; i--) {
+      const nextPath = currentPath ? `${currentPath}.${i}` : String(i);
+      if (showPrimitive || (obj[i] && typeof obj[i] === 'object')) {
+        yield { node: obj[i], path: nextPath, parent: obj, key: i };
+        if (obj[i] && typeof obj[i] === 'object') {
+          yield* iterateObjectTree(obj[i], showPrimitive, visited, nextPath, obj, i);
+        }
+      }
+    }
+  } else {
+    const keys = Object.keys(obj);
+    for (let i = keys.length - 1; i >= 0; i--) {
+      const key = keys[i];
+      const nextPath = currentPath ? `${currentPath}.${key}` : key;
+      if (showPrimitive || (obj[key] && typeof obj[key] === 'object')) {
+        yield { node: obj[key], path: nextPath, parent: obj, key };
+        if (obj[key] && typeof obj[key] === 'object') {
+          yield* iterateObjectTree(obj[key], showPrimitive, visited, nextPath, obj, key);
+        }
+      }
+    }
+  }
 }

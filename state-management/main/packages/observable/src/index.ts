@@ -23,6 +23,10 @@ import {
   calculateSnapshotHash,
   getRandomId,
   ssrStore,
+  iterateObjectTree,
+  isPathValid,
+  getByPath,
+  wrapNode,
 } from './utils';
 
 class HistoryManager<T extends object, D extends number = 0> {
@@ -30,10 +34,7 @@ class HistoryManager<T extends object, D extends number = 0> {
   private redoStack = new Map<string, any[]>();
   private perPathMaxLength: Map<string, number>;
 
-  constructor(
-    pathLimits: PathLimitEntry<T, D>[] = [],
-    resolvePath: (path: string | Accessor<any>) => string
-  ) {
+  constructor(pathLimits: PathLimitEntry<T, D>[] = [], resolvePath: (path: string | Accessor<any>) => string) {
     this.perPathMaxLength = new Map();
     for (const [key, max] of pathLimits) {
       //@ts-expect-error
@@ -81,11 +82,7 @@ class HistoryManager<T extends object, D extends number = 0> {
     };
   }
 
-  private spliceStack(
-    sourceStack: any[],
-    targetStack: any[],
-    spliceIndices?: [number, number]
-  ): any | undefined {
+  private spliceStack(sourceStack: any[], targetStack: any[], spliceIndices?: [number, number]): any | undefined {
     if (spliceIndices) {
       const [start, deleteCount] = spliceIndices;
       if (start < 0 || start >= sourceStack.length || deleteCount <= 0) {
@@ -214,13 +211,13 @@ class HistoryManager<T extends object, D extends number = 0> {
 export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[],
-  options: { ssrStoreId: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
+  options: { ssrStoreId?: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
 ): SSRStore<T, D>;
 
 export function createObservableStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares?: Middleware<T, D>[],
-  options?: { ssrStoreId: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
+  options?: { ssrStoreId?: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
 ): ObservableStore<T, D>;
 
 export function createObservableStore<T extends object, D extends number = 0>(
@@ -238,6 +235,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
   let currentSubscriberMeta: SubscriptionMeta | null = null;
 
   const metaMap = new WeakMap<object, MetaData>();
+  const primitiveMetaMap = new Map<string, MetaData>();
+
   const pendingStack: Map<string, any>[] = [];
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
@@ -259,10 +258,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const segments = splitPath(path);
     const lastKey = segments.pop()!;
     const parentObj = segments.reduce((o: any, k) => {
-      if (o == null)
-        throw new Error(
-          `Невозможно установить по пути "${path}" — промежуточное значение undefined`
-        );
+      if (o == null) throw new Error(`Невозможно установить по пути "${path}" — промежуточное значение undefined`);
       return o[k as keyof typeof o];
     }, rawState as any);
     parentObj[lastKey as keyof typeof parentObj] = val;
@@ -273,6 +269,14 @@ export function createObservableStore<T extends object, D extends number = 0>(
   function createReactiveProxy<T extends object>(target: T, parentFullPath: string = ''): T {
     if (typeof target !== 'object' || target === null) return target;
 
+    for (const { node, path, parent, key } of iterateObjectTree(target)) {
+      withMetaSupport(node, () => {
+        const snapshot = calculateSnapshotHash(node);
+        if (!snapshot) return;
+        const wrapped = wrapNode(node, parent, key, metaMap);
+        setMetaData(metaMap, wrapped, { _prevSignature: snapshot }, primitiveMetaMap, path);
+      });
+    }
     const proxy = new Proxy(target, {
       get(target, prop, receiver) {
         const key = typeof prop === 'string' ? prop : String(prop);
@@ -293,8 +297,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
             if (batching && parentFullPath) {
               batchedInvalidations.add(parentFullPath);
-            } else if (parentFullPath) {
-              store.invalidate(parentFullPath);
             }
 
             currentArrayMethod = null;
@@ -353,29 +355,37 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     return proxy;
   }
-  function shouldSkipValueUpdate(oldVal: any, newVal: any, metaMap: WeakMap<object, MetaData>) {
+  function shouldSkipValueUpdate(
+    oldVal: any,
+    newVal: any,
+    metaMap: WeakMap<object, MetaData>,
+    path: string,
+    isSetMetaData = true
+  ) {
     let skipUpdate = false;
 
     const isSupported = withMetaSupport(newVal, () => {
-      const meta = getMetaData(metaMap, newVal);
+      const meta = getMetaData(metaMap, oldVal, primitiveMetaMap, path);
       const prevSig = meta?._prevSignature;
       const currentSig = calculateSnapshotHash(newVal);
 
-      if (prevSig && currentSig && prevSig === currentSig) {
+      if (prevSig === currentSig) {
         skipUpdate = true;
         return true;
       }
 
-      if (currentSig) {
-        setMetaData(metaMap, newVal, { _prevSignature: currentSig });
+      if (currentSig && isSetMetaData) {
+        setMetaData(metaMap, newVal, { _prevSignature: currentSig }, primitiveMetaMap, path);
       }
-
       return true;
     });
-
+    // console.log(oldVal, newVal)
     return {
+      newVal,
+      oldVal,
       bool: skipUpdate || (!isSupported && shallowEqual(oldVal, newVal)),
       isSupportedMetaData: isSupported,
+      skipUpdate: skipUpdate,
     };
   }
 
@@ -389,8 +399,68 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   const resolve = (p: string | Accessor<any>) => getStringPath(store?.$, p);
   const historyMgr = new HistoryManager<T, D>(options?.customLimitsHistory ?? [], resolve);
+  const processedPaths: Set<string> = new Set<string>();
 
-  function notifyInvalidate(normalizedKey: string) {
+  function collectSubscribedPaths<T>(
+    pathSubscribers: Map<string, Set<Subscriber<T>>>,
+    subscribers: Set<Subscriber<T>>
+  ): Set<string> {
+    const allSubscribedPaths = new Set<string>();
+    pathSubscribers.forEach((_, path) => {
+      allSubscribedPaths.add(path);
+    });
+    options.customLimitsHistory.forEach(([path]) => {
+      const _path = store.resolvePath(path);
+      allSubscribedPaths.add(_path);
+    });
+    subscribers.forEach((sub) => {
+      const meta: SubscriptionMeta = (sub as any).__meta;
+      if (meta?.trackedPaths) {
+        meta.trackedPaths.forEach((path) => allSubscribedPaths.add(path));
+      }
+    });
+    return allSubscribedPaths;
+  }
+
+  function processSubscribedPath(normalizedKey: string, newValue: any, oldValue: any, allSubscribedPaths: Set<string>) {
+    const prefix = normalizedKey ? `${normalizedKey}.` : '';
+
+    for (const childPath of allSubscribedPaths) {
+      if (!childPath.startsWith(prefix)) continue;
+      if (processedPaths.has(childPath)) continue;
+      const rel = childPath.slice(prefix.length);
+      const oldChild = getByPath(oldValue, rel);
+      const newChild = getByPath(newValue, rel);
+
+      if (!shouldSkipValueUpdate(oldChild, newChild, metaMap, childPath, false).bool) {
+        store.update(childPath, newChild, { skipHistory: false, keepQuiet: true, isRecurse: true, oldValue: oldChild });
+        processedPaths.add(childPath);
+      }
+    }
+    if (!batching) processedPaths.clear();
+  }
+
+  function processArraySubscriptions<T>(
+    normalizedKey: string,
+    newValue: any,
+    oldValue: any,
+    pathSubscribers: Map<string, Set<Subscriber<T>>>,
+    allSubscribedPaths: Set<string>
+  ) {
+    withMetaSupport(newValue, () => {
+      const validSubscribedPaths = new Set<string>();
+      allSubscribedPaths.forEach((path) => {
+        if (isPathValid(rawState, path)) {
+          validSubscribedPaths.add(path);
+        } else {
+          pathSubscribers.delete(path);
+        }
+      });
+
+      processSubscribedPath(normalizedKey, newValue, oldValue, validSubscribedPaths);
+    });
+  }
+  function notifyInvalidate(normalizedKey: string, newValue?: any, oldValue?: any, isRecurse = false) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
       const condition = batching
@@ -405,11 +475,18 @@ export function createObservableStore<T extends object, D extends number = 0>(
         }
       }
     });
-    const pathSubs = pathSubscribers.get(normalizedKey);
-    if (pathSubs) {
-      const newVal = getRaw(normalizedKey);
-      pathSubs.forEach((cb) => cb(newVal));
+
+    if (!processedPaths.has(normalizedKey)) {
+      const pathSubs = pathSubscribers.get(normalizedKey);
+      if (pathSubs) {
+        pathSubs.forEach((cb) => cb(newValue));
+        processedPaths.add(normalizedKey);
+      }
     }
+
+    if (isRecurse) return;
+    const allSubscribedPaths = collectSubscribedPaths(pathSubscribers, subscribers);
+    processArraySubscriptions(normalizedKey, newValue, oldValue, pathSubscribers, allSubscribedPaths);
   }
 
   store.clearHistoryPath = (
@@ -426,34 +503,35 @@ export function createObservableStore<T extends object, D extends number = 0>(
     historyMgr.pruneUnused(used);
   };
 
-  const doUpdate = (path: string, newVal: any, skipHistory = false, keepQuiet = false) => {
-    const oldVal = getRaw(path);
-    const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap);
-    if (isSkipUpdate.bool) return;
+  const doUpdate = (
+    path: string,
+    newVal: any,
+    skipHistory = false,
+    keepQuiet = false,
+    isRecurse: boolean = false,
+    oldValue?: any
+  ) => {
+    const oldVal = oldValue ?? getRaw(path);
+    const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap, path, false);
 
-    if (!skipHistory) {
-      if (isSkipUpdate.isSupportedMetaData && newVal !== oldVal) {
-        historyMgr.push(path, newVal);
-      }
-      if (!isSkipUpdate.isSupportedMetaData) {
-        historyMgr.push(path, newVal);
-      }
-    }
+    if (isRecurse) notifyInvalidate(path, newVal, oldVal, isRecurse);
+    if (!skipHistory && !isSkipUpdate.bool) historyMgr.push(path, newVal);
+    if (isRecurse) return;
+    if (isSkipUpdate.bool) return;
 
     setRaw(path, newVal);
     if (keepQuiet) return;
-    notifyInvalidate(path);
+    notifyInvalidate(path, newVal, oldVal, isRecurse);
   };
 
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
-    let newVal = store.resolveValue(pathOrAccessor, valueOrFn);
-
+    let newVal = store.resolveValue(pathOrAccessor, valueOrFn, true);
     if (batching && !options?.keepQuiet) {
       currentPending()!.set(path, newVal);
     } else {
-      doUpdate(path, newVal, false, options?.keepQuiet);
+      doUpdate(path, newVal, options?.skipHistory, options?.keepQuiet, options?.isRecurse, options?.oldValue);
     }
   };
 
@@ -461,10 +539,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
-  store.debounced = (
-    callback: (...args: any[]) => void,
-    delay: number
-  ): ((...args: any[]) => void) => {
+  store.debounced = (callback: (...args: any[]) => void, delay: number): ((...args: any[]) => void) => {
     const debounceId = getRandomId();
     let timer: NodeJS.Timeout | null = null;
     const debouncedFn = (...args: any[]) => {
@@ -491,10 +566,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   function commit(pending: Map<string, any>) {
     const changedPaths: string[] = [];
-
     for (const [path, value] of pending) {
       const oldVal = getRaw(path);
-      const isSkipUpdate = shouldSkipValueUpdate(oldVal, value, metaMap);
+      const isSkipUpdate = shouldSkipValueUpdate(oldVal, value, metaMap, path);
       if (isSkipUpdate.bool) continue;
 
       if (modeBatching === 'user') {
@@ -502,31 +576,32 @@ export function createObservableStore<T extends object, D extends number = 0>(
       }
 
       setRaw(path, value);
-      notifyInvalidate(path);
+      notifyInvalidate(path, value, oldVal);
       changedPaths.push(path);
     }
 
     if (changedPaths.length) {
       subscribers.forEach((sub) => {
         const meta: SubscriptionMeta = (sub as any).__meta;
-        if (!meta.cacheKeys) sub(stateProxy);
+        if (!meta.cacheKeys) sub(store.getRawStore());
       });
     }
   }
 
-  store.resolveValue = (pathOrAccessor, valueOrFn) => {
+  store.resolveValue = (pathOrAccessor, valueOrFn, isAddMeta = false) => {
     const path = resolve(pathOrAccessor);
     const old = getRaw(path);
-
     const newVal = typeof valueOrFn === 'function' ? valueOrFn(old) : valueOrFn;
 
-    withMetaSupport(newVal, () => {
-      const snapshot = calculateSnapshotHash(old);
-      if (snapshot) return;
-      setMetaData(metaMap, newVal, {
-        _prevSignature: snapshot,
+    if (isAddMeta) {
+      withMetaSupport(newVal, () => {
+        for (const { node, parent, key } of iterateObjectTree(newVal)) {
+          const snapshot = calculateSnapshotHash(node);
+          if (!snapshot) break;
+          wrapNode(node, parent, key, metaMap);
+        }
       });
-    });
+    }
 
     return newVal;
   };
@@ -596,9 +671,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   store.batch = (fn: () => void) => {
+    processedPaths.clear();
     pendingStack.push(new Map());
     batching = true;
-
     try {
       fn();
     } finally {
@@ -612,6 +687,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         commit(myPending);
         batching = false;
         modeBatching = 'user';
+        processedPaths.clear();
         for (const path of batchedInvalidations) {
           store.invalidate(path);
         }
@@ -803,7 +879,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     historyEntries: historyMgr.getEntries(),
     activePathsCount: pathSubscribers.size,
     debounceTimersCount: debounceTimers.size,
-    abortersCount: aborters.size
+    abortersCount: aborters.size,
   });
 
   let wrappedUpdate = store.update;
