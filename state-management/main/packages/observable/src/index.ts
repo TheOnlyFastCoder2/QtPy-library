@@ -409,7 +409,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     pathSubscribers.forEach((_, path) => {
       allSubscribedPaths.add(path);
     });
-    options.customLimitsHistory.forEach(([path]) => {
+    options?.customLimitsHistory?.forEach(([path]) => {
       const _path = store.resolvePath(path);
       allSubscribedPaths.add(_path);
     });
