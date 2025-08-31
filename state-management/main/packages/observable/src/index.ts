@@ -368,7 +368,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const meta = getMetaData(metaMap, oldVal, primitiveMetaMap, path);
       const prevSig = meta?._prevSignature;
       const currentSig = calculateSnapshotHash(newVal);
-
+      // console.log(prevSig, currentSig);
       if (prevSig === currentSig) {
         skipUpdate = true;
         return true;
@@ -433,7 +433,13 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const newChild = getByPath(newValue, rel);
 
       if (!shouldSkipValueUpdate(oldChild, newChild, metaMap, childPath, false).bool) {
-        store.update(childPath, newChild, { skipHistory: false, keepQuiet: true, isRecurse: true, oldValue: oldChild });
+        store.update(childPath, newChild, {
+          skipHistory: false,
+          keepQuiet: true,
+          isRecurse: true,
+          oldValue: oldChild,
+          isAddMetaData: true,
+        });
         processedPaths.add(childPath);
       }
     }
@@ -527,7 +533,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
     const path = resolve(pathOrAccessor);
-    let newVal = store.resolveValue(pathOrAccessor, valueOrFn, true);
+    let newVal = store.resolveValue(pathOrAccessor, valueOrFn, options?.isAddMetaData);
     if (batching && !options?.keepQuiet) {
       currentPending()!.set(path, newVal);
     } else {
@@ -598,7 +604,8 @@ export function createObservableStore<T extends object, D extends number = 0>(
         for (const { node, parent, key } of iterateObjectTree(newVal)) {
           const snapshot = calculateSnapshotHash(node);
           if (!snapshot) break;
-          wrapNode(node, parent, key, metaMap);
+          const wrapped = wrapNode(node, parent, key, metaMap);
+          setMetaData(metaMap, wrapped, { _prevSignature: snapshot }, primitiveMetaMap, path);
         }
       });
     }

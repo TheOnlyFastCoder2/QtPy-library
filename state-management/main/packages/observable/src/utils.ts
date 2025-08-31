@@ -361,7 +361,7 @@ export function ssrStore<T extends object, D extends number = 0>(
 
   ssrEnhancedStore.snapshot = async () => {
     try {
-      await lastPromise; // ждём всю очередь
+      await lastPromise;
       return store.getRawStore();
     } catch (error) {
       console.error('Failed to create snapshot:', error);
@@ -477,7 +477,7 @@ export function wrapObjectMethods(node: object, metaMap: WeakMap<object, MetaDat
           });
         });
 
-        return Object.prototype[method].apply(this, ...args);
+        return Object[method](this, ...args);
       };
     }
   });
