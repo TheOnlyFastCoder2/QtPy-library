@@ -230,21 +230,28 @@ export function createObservableStore<T extends object, D extends number = 0>(
 ): ObservableStore<T, D> | SSRStore<T, D> {
   let rawState: T = { ...initialState };
 
-  let batching = false;
-  let modeBatching: 'proxy' | 'user' = 'user';
   let currentSubscriberMeta: SubscriptionMeta | null = null;
+
+  const batchingStack = new Map<string, { modeBatching: 'proxy' | 'user'; pending: Map<string, any> }>();
 
   const metaMap = new WeakMap<object, MetaData>();
   const primitiveMetaMap = new Map<string, MetaData>();
 
-  const pendingStack: Map<string, any>[] = [];
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
   const aborters = new Map<string, AbortController>();
   const batchedInvalidations = new Set<string>();
   const debounceTimers = new Map<string, NodeJS.Timeout>();
 
-  const currentPending = () => pendingStack[pendingStack.length - 1];
+  const getCurrentBatch = () => {
+    if (batchingStack.size === 0) return null;
+    const lastKey = Array.from(batchingStack.keys()).pop()!;
+    return batchingStack.get(lastKey)!;
+  };
+
+  const getIsBatching = () => {
+    return batchingStack.size !== 0
+  };
 
   const getRaw = (path: string) => {
     const segments = splitPath(path);
@@ -289,13 +296,14 @@ export function createObservableStore<T extends object, D extends number = 0>(
         if (Array.isArray(target) && typeof rawValue === 'function' && isArrayMethod(key)) {
           return (...args: any[]) => {
             currentArrayMethod = { name: key };
+            const currentBatch = getCurrentBatch();
+
             let result: any;
-            modeBatching = 'proxy';
             store.batch(() => {
               result = rawValue.apply(receiver, args);
-            });
+            }, 'proxy');
 
-            if (batching && parentFullPath) {
+            if (currentBatch && currentBatch.modeBatching === 'proxy' && parentFullPath) {
               batchedInvalidations.add(parentFullPath);
             }
 
@@ -314,14 +322,16 @@ export function createObservableStore<T extends object, D extends number = 0>(
       },
 
       set(target, prop, value, receiver) {
+        const currentBatch = getCurrentBatch();
+
         const key = typeof prop === 'string' ? prop : String(prop);
         const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
         const oldValue = Reflect.get(target, prop, receiver);
 
         if (Object.is(oldValue, value)) return true;
-        if (batching) {
-          currentPending()!.set(fullPath, value);
+        if (currentBatch && currentBatch.modeBatching === 'proxy') {
+          currentBatch?.pending.set(fullPath, value);
         } else {
           store.update(fullPath, value);
 
@@ -443,7 +453,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
         processedPaths.add(childPath);
       }
     }
-    if (!batching) processedPaths.clear();
+    if (!getIsBatching()) processedPaths.clear();
   }
 
   function processArraySubscriptions<T>(
@@ -469,7 +479,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   function notifyInvalidate(normalizedKey: string, newValue?: any, oldValue?: any, isRecurse = false) {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
-      const condition = batching
+      const condition = getIsBatching()
         ? meta.cacheKeys && meta.cacheKeys.has(normalizedKey)
         : !meta.cacheKeys || meta.cacheKeys.has(normalizedKey);
       if (condition) {
@@ -532,10 +542,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   store.update = (pathOrAccessor, valueOrFn, options) => {
     validatePath(pathOrAccessor);
+    const currentBatch = getCurrentBatch();
+
     const path = resolve(pathOrAccessor);
     let newVal = store.resolveValue(pathOrAccessor, valueOrFn, options?.isAddMetaData);
-    if (batching && !options?.keepQuiet) {
-      currentPending()!.set(path, newVal);
+    if (currentBatch && !options?.keepQuiet) {
+      currentBatch.pending.set(path, newVal);
     } else {
       doUpdate(path, newVal, options?.skipHistory, options?.keepQuiet, options?.isRecurse, options?.oldValue);
     }
@@ -575,9 +587,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     for (const [path, value] of pending) {
       const oldVal = getRaw(path);
       const isSkipUpdate = shouldSkipValueUpdate(oldVal, value, metaMap, path);
-      if (isSkipUpdate.bool) continue;
+      const currentBatch = getCurrentBatch();
 
-      if (modeBatching === 'user') {
+      if (isSkipUpdate.bool) continue;
+      if (currentBatch?.modeBatching === 'user') {
         historyMgr.push(path, oldVal);
       }
 
@@ -593,10 +606,17 @@ export function createObservableStore<T extends object, D extends number = 0>(
       });
     }
   }
-
+  function getPendingOrRaw(path: string) {
+    const keys = Array.from(batchingStack.keys());
+    for (let i = keys.length - 1; i >= 0; i--) {
+      const batch = batchingStack.get(keys[i])!;
+      if (batch.pending.has(path)) return batch.pending.get(path);
+    }
+    return getRaw(path);
+  }
   store.resolveValue = (pathOrAccessor, valueOrFn, isAddMeta = false) => {
     const path = resolve(pathOrAccessor);
-    const old = getRaw(path);
+    const old = getPendingOrRaw(path); // ← заменили getRaw на getPendingOrRaw
     const newVal = typeof valueOrFn === 'function' ? valueOrFn(old) : valueOrFn;
 
     if (isAddMeta) {
@@ -677,29 +697,40 @@ export function createObservableStore<T extends object, D extends number = 0>(
     });
   };
 
-  store.batch = (fn: () => void) => {
-    processedPaths.clear();
-    pendingStack.push(new Map());
-    batching = true;
-    try {
-      fn();
-    } finally {
-      const myPending = pendingStack.pop()!;
-      if (pendingStack.length > 0) {
-        const parent = currentPending()!;
-        for (const [path, val] of myPending) {
-          parent.set(path, val);
-        }
-      } else {
-        commit(myPending);
-        batching = false;
-        modeBatching = 'user';
-        processedPaths.clear();
-        for (const path of batchedInvalidations) {
-          store.invalidate(path);
-        }
-        batchedInvalidations.clear();
+  function startBatch(mode: 'proxy' | 'user' = 'user') {
+    const key = getRandomId();
+    batchingStack.set(key, { modeBatching: mode, pending: new Map() });
+    return key;
+  }
+  function endBatch(key: string) {
+    const batch = batchingStack.get(key);
+    if (!batch) return;
+
+    batchingStack.delete(key);
+
+    if (batchingStack.size === 0) {
+      commit(batch.pending);
+      processedPaths.clear();
+      for (const path of batchedInvalidations) {
+        store.invalidate(path);
       }
+      batchedInvalidations.clear();
+    } else {
+      const parentKey = Array.from(batchingStack.keys()).pop()!;
+      const parent = batchingStack.get(parentKey)!;
+      batch.pending.forEach((val, path) => parent.pending.set(path, val));
+    }
+  }
+
+  store.batch = async (fn: () => void | Promise<void>, mode: 'proxy' | 'user' = 'user') => {
+    const key = startBatch(mode);
+    try {
+      const result = fn(); 
+      if (result instanceof Promise) {
+        await result;
+      }
+    } finally {
+      endBatch(key);
     }
     return Promise.resolve();
   };
