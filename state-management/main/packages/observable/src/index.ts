@@ -528,7 +528,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     oldValue?: any
   ) => {
     const oldVal = oldValue ?? getRaw(path);
-    const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap, path, false);
+    const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap, path);
 
     if (isRecurse) notifyInvalidate(path, newVal, oldVal, isRecurse);
     if (!skipHistory && !isSkipUpdate.bool) historyMgr.push(path, newVal);
