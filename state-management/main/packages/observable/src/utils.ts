@@ -328,7 +328,7 @@ export function getRandomId() {
 }
 
 export const getCheckIsSSR = () => {
-  return typeof window === 'undefined' || typeof process !== 'undefined' || typeof self === 'undefined';
+  return typeof window === 'undefined';
 };
 
 export function ssrStore<T extends object, D extends number = 0>(

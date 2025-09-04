@@ -1,6 +1,6 @@
 {
   "name": "@qtpy/state-management-react",
-  "version": "0.2.92",
+  "version": "0.2.93",
   "author": "QtPy",
   "license": "MIT",
   "homepage": "https://github.com/TheOnlyFastCoder2/QtPy-library/blob/main/state-management/react/packages/observable/README.md",
@@ -29,7 +29,7 @@
     "reactivity"
   ],
   "dependencies": {
-    "@qtpy/state-management-observable": ">=0.6.113",
+    "@qtpy/state-management-observable": ">=0.6.114",
     "react": ">=18.0"
   },
   "scripts": {

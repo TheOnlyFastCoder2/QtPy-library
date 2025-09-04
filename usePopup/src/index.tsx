@@ -2,6 +2,11 @@ import { useState, useRef, useEffect, useMemo, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import './index.css';
 
+const getCheckIsSSR = () => {
+  return typeof window === 'undefined';
+};
+
+
 export interface PopupProps {
   children: ReactNode;
   className?: string;
@@ -23,7 +28,7 @@ export default function usePopup<T = any>(delay: number = 0) {
   const refContainer = useRef<HTMLDivElement | null>(null);
   const [isShowed, setIsShowed] = useState(false);
   const refPortalData = useRef<PopupControl<T>>({});
-
+  const isSSR = getCheckIsSSR()
   const toOpenPopup = () => setIsShowed(true);
 
   const toClosePopup = () => {
@@ -73,24 +78,25 @@ export default function usePopup<T = any>(delay: number = 0) {
     domPortalById = 'root',
     eventCloseBG = 'onClick',
   }: PopupProps) => {
+    if (isSSR) {
+      return null;
+    }
     const overlays = document.getElementById(domPortalById) || document.body;
     const clIsVisible = isShowed ? 'isVisible' : '';
-
     return isShowed && overlays
       ? createPortal(
-          <div
-            className={`Popup ${className} ${clIsVisible}`}
-            ref={refContainer}
-            {...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined }}
-          >
-            <div className="Popup_container">{children}</div>
-          </div>,
-          overlays
-        )
+        <div
+          className={ `Popup ${className} ${clIsVisible}` }
+          ref={ refContainer }
+          { ...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined } }
+        >
+          <div className="Popup_container">{ children }</div>
+        </div>,
+        overlays
+      )
       : null;
   };
 
-  // Создаем расширение Popup.Memo с методом Memo для пользовательских оберток
   const PopupWithMemo = Object.assign(Popup, {
     Memo: function <TProps extends ImperativePopupProps<T>, TExtensions extends object = {}>(
       config: {

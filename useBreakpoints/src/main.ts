@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
+const getCheckIsSSR = () => {
+  return typeof window === 'undefined';
+};
 
 export type CalculateFunction<T = any> = (
   currentWidth: number,
@@ -42,6 +45,7 @@ const parseBreakpointKey = (key: string | number): { width: number; height: numb
 };
 
 const useBreakpoints = function <T>(breakpoints: Record<string | number, any>, delay: number = 1000): T {
+  const isSSR = getCheckIsSSR()
   const refTimeout = useRef<NodeJS.Timeout | null>(null);
   const [windowSize, setWindowSize] = useState({
     width: typeof window !== 'undefined' ? window.innerWidth : 0,
@@ -71,6 +75,7 @@ const useBreakpoints = function <T>(breakpoints: Record<string | number, any>, d
   }, [sortedBreakpoints, windowSize]);
 
   useEffect(() => {
+    if (isSSR) return;
     const handleResize = () => {
       if (refTimeout.current) {
         clearTimeout(refTimeout.current);

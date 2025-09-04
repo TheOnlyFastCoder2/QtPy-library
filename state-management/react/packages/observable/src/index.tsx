@@ -1,6 +1,6 @@
 import { useSyncExternalStore, useRef, useEffect } from 'react';
 import { createObservableStore } from '@qtpy/state-management-observable';
-import { getRandomId, ssrStore } from '@qtpy/state-management-observable/utils';
+import { getCheckIsSSR, getRandomId, ssrStore } from '@qtpy/state-management-observable/utils';
 import type {
   Accessor,
   PathOrAccessor,
@@ -19,13 +19,13 @@ type WithSSRStore<T extends object, D extends number = 0> = SSRStore<T, D> & Rea
 export function createReactStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares: Middleware<T, D>[],
-  options: { ssrStoreId: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
-): WithSSRStore<T,D>;
+  options: { ssrStoreId?: string; customLimitsHistory?: PathLimitEntry<T, D>[] }
+): WithSSRStore<T, D>;
 
 export function createReactStore<T extends object, D extends number = 0>(
   initialState: T,
   middlewares?: Middleware<T, D>[],
-  options?: { ssrStoreId: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
+  options?: { ssrStoreId?: undefined; customLimitsHistory?: PathLimitEntry<T, D>[] }
 ): ReactStore<T, D>;
 
 /**
@@ -40,12 +40,11 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
   options: {
     customLimitsHistory?: PathLimitEntry<T, D>[];
     ssrStoreId?: string;
-    isSSR?: boolean
   } = {}
 ): ReactStore<T, D> | WithSSRStore<T, D> {
   const baseStore = createObservableStore<T, D>(initialState, middlewares, options as any);
   const store = baseStore as ReactStore<T, D> | WithSSRStore<T, D>;
-
+  const isSSR = getCheckIsSSR();
   /**
    * Хук для подписки на несколько путей в сторе, без useCallback
    */
@@ -56,13 +55,19 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
       refInInvalidation?: React.RefObject<boolean>;
     }
   ): useStoreReturn<T, P, D> {
+    const serverSnapshotRef = useRef<useStoreReturn<T, P, D> | null>(null);
     const cacheKeys = [...paths, ...(options?.cacheKeys ?? [])];
     const snapshotRef = useRef<useStoreReturn<T, P, D>>(
       cacheKeys.map((p) => store.get(p as any)) as useStoreReturn<T, P, D>
     );
 
     const getSnapshot = () => snapshotRef.current;
-
+    const getServerSnapshot = () => {
+      if (serverSnapshotRef.current === null) {
+        serverSnapshotRef.current = cacheKeys.map((p) => store.get(p as any)) as useStoreReturn<T, P, D>;
+      }
+      return serverSnapshotRef.current;
+    };
     const subscribe = (onChange: () => void) => {
       return store.subscribe(() => {
         let isCacheKey = false;
@@ -84,7 +89,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
       }, cacheKeys as any);
     };
 
-    return useSyncExternalStore(subscribe, getSnapshot);
+    return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   }
 
   function useField(path: any, options?: any) {
@@ -106,6 +111,7 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
     effect: (values: useStoreReturn<T, P, D>) => void,
     options?: { inInvalidation?: boolean }
   ) {
+    if (isSSR) return
     const refInInvalidation = useRef(false);
     const countRef = useRef(0);
     const values = useStore(paths, { refInInvalidation });
