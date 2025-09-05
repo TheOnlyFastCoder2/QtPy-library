@@ -8,7 +8,10 @@ import {
   PathExtract,
   MaxDepth,
   ExtractPathReturn,
+  SSRStore,
 } from '@qtpy/state-management-observable/types';
+
+export type WithSSRStore<T extends object, D extends number = 0> = SSRStore<T, D> & ReactStore<T, D>;
 
 /**
  * Тип возвращаемого массива значений по path-прокси

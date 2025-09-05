@@ -250,7 +250,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   };
 
   const getIsBatching = () => {
-    return batchingStack.size !== 0
+    return batchingStack.size !== 0;
   };
 
   const getRaw = (path: string) => {
@@ -725,7 +725,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.batch = async (fn: () => void | Promise<void>, mode: 'proxy' | 'user' = 'user') => {
     const key = startBatch(mode);
     try {
-      const result = fn(); 
+      const result = fn();
       if (result instanceof Promise) {
         await result;
       }

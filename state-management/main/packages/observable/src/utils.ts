@@ -128,16 +128,15 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
     nameToValue[expr] = val;
   }
 
-  // Заменяем каждый вызов второго аргумента на соответствующее значение
   let replacedPath = compactPath.replace(tCallGlobal, (_all, expr) => {
     const v = nameToValue[expr];
     return v === undefined ? 'undefined' : String(v);
   });
 
-  // Обрабатываем статические индексы: ['foo'] → .foo, [123] → .123
-  replacedPath = replacedPath.replace(/\[['"]([\w$]+)['"]\]/g, '.$1').replace(/\[([\w$]+)\]/g, '.$1');
+  replacedPath = replacedPath
+    .replace(/\[['"]([^[\]]+)['"]\]/g, (_, key) => `.${key}`) // ['/projects/:id'] → ./projects/:id
+    .replace(/\[([^[\]]+)\]/g, (_, key) => `.${key}`); // [/projects/:id] → ./projects/:id
 
-  // Убираем двойные точки и ведущую точку
   const noDoubleDots = replacedPath.replace(/\.\./g, '.');
   const normalized = noDoubleDots.startsWith('.') ? noDoubleDots.slice(1) : noDoubleDots;
 

@@ -8,13 +8,12 @@ import type {
   PathOrError,
   MaxDepth,
   PathLimitEntry,
-  SSRStore,
 } from '@qtpy/state-management-observable/types';
-import type { ReactStore, useStoreReturn } from './types';
+import type { ReactStore, useStoreReturn, WithSSRStore } from './types';
 
 export { createObservableStore, getRandomId, ssrStore };
 
-type WithSSRStore<T extends object, D extends number = 0> = SSRStore<T, D> & ReactStore<T, D>;
+
 
 export function createReactStore<T extends object, D extends number = 0>(
   initialState: T,
