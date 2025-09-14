@@ -236,17 +236,14 @@ export type Accessor<T, R = any> = ($: T, t: <K>(arg: K) => K) => R;
 export type Primitive = string | number | boolean | symbol | null | undefined;
 
 export type ValueOrFn<V> = ((value: V) => V) | V;
-export type ExtractPathReturn<T, P extends PathOrAccessor<T, D>, D extends number = MaxDepth> = P extends Accessor<
-  T,
-  infer V
->
-  ? V
+export type ExtractPathReturn<T, P extends PathOrAccessor<T, D>, D extends number = MaxDepth> =
+  P extends Accessor<T, infer V>
+  ? WithSignal<V>
   : P extends PathOrError<T, infer S, D>
   ? S extends string
-    ? PathExtract<T, D, S>
-    : any
+  ? WithSignal<PathExtract<T, D, S>>
+  : any
   : any;
-
 export type CacheKeys<T, P extends readonly PathOrAccessor<T, D>[], D extends number = MaxDepth> = {
   [K in keyof P]: P[K] extends Accessor<T, infer V>
     ? V
@@ -334,6 +331,41 @@ export type MetaData = {
 
 export type PathLimitEntry<T, D extends number> = [PathOrAccessor<T, D>, number];
 
+/**
+ * Достаём голый тип без обёртки
+ */
+type UnwrapSignal<V> =
+  V extends { v: infer U } ? U : V;
+
+/**
+ * Обёртка вокруг значения: теперь вместо `.value` будет `.v`
+ */
+/**
+ * Рекурсивная обёртка: каждый примитив в .v,
+ * массивы получают спец-методы, объекты рекурсивно оборачиваются
+ */
+type IsSignal<T> = T extends { v: any } ? true : false;
+
+type WithSignal<T> =
+  T extends Primitive
+  ? { v: T }
+  : T extends readonly (infer U)[]
+  ? {
+    v: T; // исходный массив, не обернутый
+    setAt(index: number, value: U): void;
+    push(...items: U[]): number;
+    pop(): U | undefined;
+    splice(start: number, deleteCount?: number, ...items: U[]): U[];
+    shift(): U | undefined;
+    unshift(...items: U[]): number;
+    sort(compareFn?: (a: U, b: U) => number): WithSignal<U>[];
+    reverse(): WithSignal<U>[];
+  }
+  : T extends object
+  ? { [K in keyof T]: WithSignal<T[K]> } & { v: T }
+  : { v: T };
+
+
 export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
   snapshot: () => Promise<T>;
   getSerializedStore: (type: 'window' | 'scriptTag' | 'serializedData') => Promise<string>;
@@ -351,7 +383,9 @@ export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
  */
 export interface ObservableStore<T, D extends number = MaxDepth> {
   /** Прокси-объект состояния. */
-  readonly $: T;
+  readonly $: WithSignal<T>;
+  unwrapSignals: <T>(signalObj: WithSignal<any>) => T
+
 
   /**
    * Вернуть "сырой" state без Proxy.
@@ -397,7 +431,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    * @param callback - Колбэк, вызываемый при любом изменении состояния.
    * @param cacheKeys - Ключи кэша для фильтрации уведомлений (необязательно).
    */
-  subscribe(callback: Subscriber<T>, cacheKeys?: readonly PathOrAccessor<T, D>[]): Unsubscribe;
+  subscribe(callback: Subscriber<WithSignal<T>>, cacheKeys?: readonly PathOrAccessor<T, D>[]): Unsubscribe;
 
   /**
    * Подписка на изменения по строковому пути.
@@ -429,20 +463,20 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
      * @param options - Дополнительные параметры.
      * @param option.keepQuiet - Если true, обновление не будет уведомлять подписчиков.
      */
-    <const P extends PathOrAccessor<T, D>>(
+    <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
-      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>,
+      valueOrFn: ValueOrFn<E>,
       options?: { keepQuiet?: boolean }
-    ): ExtractPathReturn<T, P, D>;
+    ): WithSignal<E>;
     /**
      * Обновить значение без уведомлений подписок.
      * @param path - Accessor-функция или путь к значению.
      * @param valueOrFn - Новое значение или функция обновления.
      */
-    quiet: <const P extends PathOrAccessor<T, D>>(
+    quiet: <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
-      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>
-    ) => ExtractPathReturn<T, P, D>;
+      valueOrFn: ValueOrFn<E>
+    ) => WithSignal<E>;
   };
 
   /**

@@ -136,3 +136,4 @@ export function createReactStore<T extends object, D extends number = MaxDepth>(
 
   return store;
 }
+

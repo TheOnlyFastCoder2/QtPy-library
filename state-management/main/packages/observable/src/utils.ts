@@ -435,6 +435,7 @@ export class WrapArray extends Array {
   }
 }
 
+//wrapArrayMethods
 export function wrapArrayMethods(node: any, metaMap: WeakMap<object, MetaData>) {
   if (!Array.isArray(node) || getMetaData(metaMap, node)?._isWrapped) return node;
   MUTATING_METHODS.array.forEach((method) => {

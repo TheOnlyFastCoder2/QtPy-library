@@ -271,100 +271,122 @@ export function createObservableStore<T extends object, D extends number = 0>(
     parentObj[lastKey as keyof typeof parentObj] = val;
   };
 
-  let currentArrayMethod: { name: string } | null = null;
+  function createSignal<T>(
+    store: ObservableStore<T>,
+    path: string,
+  ) {
+    const notify = () => store.update(path, getRaw(path));
 
-  function createReactiveProxy<T extends object>(target: T, parentFullPath: string = ''): T {
-    if (typeof target !== 'object' || target === null) return target;
+    const rawValue = getRaw(path);
 
-    for (const { node, path, parent, key } of iterateObjectTree(target)) {
-      withMetaSupport(node, () => {
-        const snapshot = calculateSnapshotHash(node);
-        if (!snapshot) return;
-        const wrapped = wrapNode(node, parent, key, metaMap);
-        setMetaData(metaMap, wrapped, { _prevSignature: snapshot }, primitiveMetaMap, path);
-      });
+    // функция для установки метаданных на сигнал (а не на значение)
+    const setMeta = (signalObj: object) => {
+      if (metaMap) {
+        const snapshot = calculateSnapshotHash(getRaw(path));
+        // console.log(snapshot)
+        setMetaData(metaMap, signalObj, { _prevSignature: snapshot }, primitiveMetaMap, path);
+      }
+    };
+
+    if (Array.isArray(rawValue)) {
+      const signalObj: any = {
+        get v() {
+          return rawValue.map((_, i) => createSignal(store, `${path}.${i}`));
+        },
+        set v(newArr: any[]) {
+          rawValue.length = 0;
+          rawValue.push(...newArr);
+          notify();
+          setMeta(signalObj);
+        },
+        setAt(index: number, value: T) {
+          rawValue[index] = value;
+          notify();
+          setMeta(signalObj);
+        },
+        push(...items: any[]) {
+          const result = rawValue.push(...items);
+          notify();
+          setMeta(signalObj);
+          return result;
+        },
+        pop() {
+          const result = rawValue.pop();
+          notify();
+          setMeta(signalObj);
+          return result;
+        },
+        splice(start: number, deleteCount?: number, ...items: any[]) {
+          const result = rawValue.splice(start, deleteCount, ...items);
+          notify();
+          setMeta(signalObj);
+          return result;
+        },
+        shift() {
+          const result = rawValue.shift();
+          notify();
+          setMeta(signalObj);
+          return result;
+        },
+        unshift(...items: any[]) {
+          const result = rawValue.unshift(...items);
+          notify();
+          setMeta(signalObj);
+          return result;
+        },
+        sort(compareFn?: (a: any, b: any) => number) {
+          rawValue.sort(compareFn);
+          notify();
+          setMeta(signalObj);
+          return rawValue;
+        },
+        reverse() {
+          rawValue.reverse();
+          notify();
+          setMeta(signalObj);
+          return rawValue;
+        },
+      };
+      setMeta(signalObj);
+      return signalObj;
     }
-    const proxy = new Proxy(target, {
-      get(target, prop, receiver) {
-        const key = typeof prop === 'string' ? prop : String(prop);
-        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
 
-        currentSubscriberMeta?.trackedPaths.add(fullPath);
+    if (typeof rawValue === 'object' && rawValue !== null) {
+      const signals: Record<string, any> = {};
+      const signalObj = signals; // сам объект сигналов
+      setMeta(signalObj);
+      for (const key of Object.keys(rawValue)) {
+        signals[key] = createSignal(store, `${path}.${key}`);
+      }
+      return signals;
+    }
 
-        const rawValue = Reflect.get(target, prop, receiver);
-
-        if (Array.isArray(target) && typeof rawValue === 'function' && isArrayMethod(key)) {
-          return (...args: any[]) => {
-            currentArrayMethod = { name: key };
-            const currentBatch = getCurrentBatch();
-
-            let result: any;
-            store.batch(() => {
-              result = rawValue.apply(receiver, args);
-            }, 'proxy');
-
-            if (currentBatch && currentBatch.modeBatching === 'proxy' && parentFullPath) {
-              batchedInvalidations.add(parentFullPath);
-            }
-
-            currentArrayMethod = null;
-            return result;
-          };
-        }
-
-        if (rawValue === target) return receiver;
-
-        if (rawValue !== null && typeof rawValue === 'object') {
-          return createReactiveProxy(rawValue, fullPath);
-        }
-
-        return rawValue;
+    const signalObj = {
+      get v() {
+        return store.get(path);
       },
-
-      set(target, prop, value, receiver) {
-        const currentBatch = getCurrentBatch();
-
-        const key = typeof prop === 'string' ? prop : String(prop);
-        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
-
-        const oldValue = Reflect.get(target, prop, receiver);
-
-        if (Object.is(oldValue, value)) return true;
-        if (currentBatch && currentBatch.modeBatching === 'proxy') {
-          currentBatch?.pending.set(fullPath, value);
-        } else {
-          store.update(fullPath, value);
-
-          if (!currentArrayMethod && parentFullPath) {
-            store.invalidate(parentFullPath);
-          }
-        }
-
-        return true;
+      set v(newValue) {
+        // console.log(23)
+        store.update(path, newValue);
+        setMeta(signalObj);
       },
-
-      deleteProperty(target, prop) {
-        const key = typeof prop === 'string' ? prop : String(prop);
-        const fullPath = parentFullPath ? `${parentFullPath}.${key}` : key;
-
-        const success = Reflect.deleteProperty(target, prop);
-        if (success) store.update(fullPath, undefined);
-        return success;
-      },
-
-      ownKeys(target) {
-        if (currentSubscriberMeta) {
-          const prefix = parentFullPath ? `${parentFullPath}.` : '';
-          for (const key of Reflect.ownKeys(target)) {
-            currentSubscriberMeta.trackedPaths.add(`${prefix}${String(key)}`);
-          }
-        }
-        return Reflect.ownKeys(target);
-      },
-    });
-
-    return proxy;
+    };
+    setMeta(signalObj);
+    return signalObj;
   }
+
+
+  function createNestedSignals(store: any, obj: any) {
+    const signals: Record<string, any> = {};
+    for (const { path, node } of iterateObjectTree(obj)) {
+      signals[path] = createSignal(store, path);
+      if (typeof node === 'object' && node !== null) {
+        signals[path] = createSignal(store, path);
+      }
+    }
+    return signals;
+  }
+
   function shouldSkipValueUpdate(
     oldVal: any,
     newVal: any,
@@ -379,11 +401,11 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const prevSig = meta?._prevSignature;
       const currentSig = calculateSnapshotHash(newVal);
       // console.log(prevSig, currentSig);
+    
       if (prevSig === currentSig) {
         skipUpdate = true;
         return true;
       }
-
       if (currentSig && isSetMetaData) {
         setMetaData(metaMap, newVal, { _prevSignature: currentSig }, primitiveMetaMap, path);
       }
@@ -400,14 +422,13 @@ export function createObservableStore<T extends object, D extends number = 0>(
   }
 
   const store: any = {};
-  let stateProxy = createReactiveProxy(rawState);
   Object.defineProperty(store, '$', {
-    get: () => stateProxy as T,
+    get: () => createNestedSignals(store, rawState),
     enumerable: true,
     configurable: true,
   });
 
-  const resolve = (p: string | Accessor<any>) => getStringPath(store?.$, p);
+  const resolve = (p: string | Accessor<any>) => getStringPath(rawState, p);
   const historyMgr = new HistoryManager<T, D>(options?.customLimitsHistory ?? [], resolve);
   const processedPaths: Set<string> = new Set<string>();
 
@@ -485,7 +506,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       if (condition) {
         currentSubscriberMeta = meta;
         try {
-          sub(stateProxy, meta.unsubscribe);
+          sub(store.$, meta.unsubscribe);
         } finally {
           currentSubscriberMeta = null;
         }
@@ -625,12 +646,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     if (isAddMeta) {
       withMetaSupport(newVal, () => {
-        for (const { node, parent, key } of iterateObjectTree(newVal)) {
-          const snapshot = calculateSnapshotHash(node);
-          if (!snapshot) break;
-          const wrapped = wrapNode(node, parent, key, metaMap);
-          setMetaData(metaMap, wrapped, { _prevSignature: snapshot }, primitiveMetaMap, path);
-        }
+        createNestedSignals(store.$, newVal)
       });
     }
 
@@ -871,7 +887,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const meta: SubscriptionMeta = (sub as any).__meta;
       currentSubscriberMeta = meta;
       try {
-        sub(stateProxy, meta.unsubscribe);
+        sub(store.$, meta.unsubscribe);
       } finally {
         currentSubscriberMeta = null;
       }
@@ -930,7 +946,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     debounceTimers.forEach((timer) => clearTimeout(timer));
     debounceTimers.clear();
     rawState = { ...newState };
-    stateProxy = createReactiveProxy(rawState);
+    store.$ = createNestedSignals({} as any, rawState);
     if (!options?.keepQuiet) {
       store.invalidateAll();
     }
@@ -955,3 +971,19 @@ export function createObservableStore<T extends object, D extends number = 0>(
     ? (ssrStore<T, D>(store, options.ssrStoreId) as SSRStore<T, D>)
     : (store as ObservableStore<T, D>);
 }
+
+const store = createObservableStore({
+  counter: 1,
+  items: [{ lol: 32 }],
+});
+
+
+store.subscribeToPath(($) => $.items[0], (val) => { 
+  console.log(val)
+})
+
+
+store.batch(() => { 
+  store.$.items.v = [{ lol: 32 }]
+  store.$.items.v = [{ lol: 44 }]
+})
