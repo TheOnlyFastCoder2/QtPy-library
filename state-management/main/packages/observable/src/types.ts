@@ -344,15 +344,12 @@ type UnwrapSignal<V> =
  * Рекурсивная обёртка: каждый примитив в .v,
  * массивы получают спец-методы, объекты рекурсивно оборачиваются
  */
-type IsSignal<T> = T extends { v: any } ? true : false;
-
-type WithSignal<T> =
+export type WithSignal<T> =
   T extends Primitive
   ? { v: T }
   : T extends readonly (infer U)[]
   ? {
-    v: T; // исходный массив, не обернутый
-    setAt(index: number, value: U): void;
+    v: WithSignal<U>[];
     push(...items: U[]): number;
     pop(): U | undefined;
     splice(start: number, deleteCount?: number, ...items: U[]): U[];
@@ -362,9 +359,8 @@ type WithSignal<T> =
     reverse(): WithSignal<U>[];
   }
   : T extends object
-  ? { [K in keyof T]: WithSignal<T[K]> } & { v: T }
+  ? { [K in keyof T]: WithSignal<T[K]> } & { v: T } // добавляем v для полного объекта
   : { v: T };
-
 
 export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
   snapshot: () => Promise<T>;
