@@ -489,15 +489,27 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
   asyncUpdate: {
     <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
-      asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
-      options?: { abortPrevious?: boolean; keepQuiet?: boolean }
+      asyncUpdater: (current: E) => Promise<E>,
+      options?: { abortPrevious?: false; keepQuiet?: boolean }
     ): Promise<E>;
-
-    quiet: <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
+    <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
       asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
-      options?: { abortPrevious?: boolean }
-    ) => Promise<E>;
+      options: { abortPrevious: true; keepQuiet?: boolean }
+    ): Promise<E>;
+
+    quiet: {
+      <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
+        path: P,
+        asyncUpdater: (current: E) => Promise<E>,
+        options?: { abortPrevious?: false, keepQuiet?: boolean }
+      ): Promise<E>;
+      <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
+        path: P,
+        asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
+        options: { abortPrevious: true, keepQuiet?: boolean }
+      ): Promise<E>;
+    }
   };
 
   /**

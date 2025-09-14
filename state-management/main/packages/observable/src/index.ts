@@ -955,27 +955,3 @@ export function createObservableStore<T extends object, D extends number = 0>(
     ? (ssrStore<T, D>(store, options.ssrStoreId) as SSRStore<T, D>)
     : (store as ObservableStore<T, D>);
 }
-
-const store = createObservableStore<{ counter: number; data: string }>({
-  counter: 0,
-  data: '',
-});
-
-let val;
-val = await store.asyncUpdate('counter', async (prev) => {
-  return prev + 1;
-})
-
-val = await store.asyncUpdate('counter', async (prev) => {
-  return prev + 1;
-})
-
-setTimeout(() => { 
-  store.asyncUpdate('counter', async (prev) => {
-    return prev + 1;
-  })
-
-  store.asyncUpdate('counter', async (prev) => {
-    return prev + 1;
-  })
-}, 100)
