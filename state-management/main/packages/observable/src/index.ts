@@ -485,7 +485,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       if (condition) {
         currentSubscriberMeta = meta;
         try {
-          sub(stateProxy);
+          sub(stateProxy, meta.unsubscribe);
         } finally {
           currentSubscriberMeta = null;
         }
@@ -495,7 +495,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     if (!processedPaths.has(normalizedKey)) {
       const pathSubs = pathSubscribers.get(normalizedKey);
       if (pathSubs) {
-        pathSubs.forEach((cb) => cb(newValue));
+        pathSubs.forEach((sub) => {
+          const meta: SubscriptionMeta = (sub as any).__meta;
+          sub(newValue, meta.unsubscribe);
+        });
         processedPaths.add(normalizedKey);
       }
     }
@@ -550,11 +553,12 @@ export function createObservableStore<T extends object, D extends number = 0>(
       currentBatch.pending.set(path, newVal);
     } else {
       doUpdate(path, newVal, options?.skipHistory, options?.keepQuiet, options?.isRecurse, options?.oldValue);
+      return newVal;
     }
   };
 
   store.update.quiet = (pathOrAccessor, valueOrFn) => {
-    store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
+    return store.update(pathOrAccessor, valueOrFn, { keepQuiet: true });
   };
 
   store.debounced = (callback: (...args: any[]) => void, delay: number): ((...args: any[]) => void) => {
@@ -602,7 +606,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     if (changedPaths.length) {
       subscribers.forEach((sub) => {
         const meta: SubscriptionMeta = (sub as any).__meta;
-        if (!meta.cacheKeys) sub(store.getRawStore());
+        if (!meta.cacheKeys) sub(store.getRawStore(), meta.unsubscribe);
       });
     }
   }
@@ -656,10 +660,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   store.asyncUpdate = async (
     pathOrAccessor: string | (() => any),
-    updater: (cur: any, signal: AbortSignal) => Promise<any>,
-    options: { abortPrevious?: boolean; keepQuiet: boolean }
+    updater: (cur: any, signal?: AbortSignal) => Promise<any>,
+    options: { abortPrevious?: boolean; keepQuiet?: boolean } = {}
   ) => {
-    const { abortPrevious = false, keepQuiet = false } = options ?? {};
+    const { abortPrevious = false, keepQuiet = false } = options;
     validatePath(pathOrAccessor);
     const pathStr = resolve(pathOrAccessor);
 
@@ -667,22 +671,34 @@ export function createObservableStore<T extends object, D extends number = 0>(
       store.cancelAsyncUpdates(pathStr);
     }
 
-    const ctrl = new AbortController();
+    let newValue;
+    if (abortPrevious) {
+      const ctrl = new AbortController();
+      aborters.set(pathStr, ctrl);
 
-    aborters.set(pathStr, ctrl);
-
-    try {
-      const oldValue = getRaw(pathStr);
-      const newValue = await updater(oldValue, ctrl.signal);
-      if (!ctrl.signal.aborted) {
-        store.update(pathStr, newValue, { keepQuiet: keepQuiet });
+      try {
+        const oldValue = getRaw(pathStr);
+        newValue = await updater(oldValue, ctrl.signal);
+        store.update(pathStr, newValue, { keepQuiet });
+        return newValue;
+      } catch (e) {
+        if ((e as any).name !== 'AbortError') {
+          console.error(e);
+        }
+        throw e;
+      } finally {
+        aborters.delete(pathStr);
       }
-    } catch (e) {
-      if ((e as any).name !== 'AbortError') {
+    } else {
+      try {
+        const oldValue = getRaw(pathStr);
+        newValue = await updater(oldValue);
+        store.update(pathStr, newValue, { keepQuiet });
+        return newValue;
+      } catch (e) {
         console.error(e);
+        throw e;
       }
-    } finally {
-      aborters.delete(pathStr);
     }
   };
 
@@ -783,20 +799,24 @@ export function createObservableStore<T extends object, D extends number = 0>(
     const normKeys: Set<string> | undefined = keys
       ? new Set<string>(keys.map((k) => normalizeCacheKey(k, store)))
       : undefined;
+
+    const wrap = (s: T, unsub: () => void) => {
+      if (meta.active) cb(s, unsub);
+    };
+
     const meta: SubscriptionMeta = {
       active: true,
       trackedPaths: new Set(),
       cacheKeys: normKeys,
+      unsubscribe: () => {
+        meta.active = false;
+        subscribers.delete(wrap);
+      },
     };
-    const wrap = (s: T) => {
-      if (meta.active) cb(s);
-    };
+
     (wrap as any).__meta = meta;
     subscribers.add(wrap);
-    return () => {
-      meta.active = false;
-      subscribers.delete(wrap);
-    };
+    return meta.unsubscribe;
   };
 
   store.subscribeToPath = (
@@ -817,12 +837,18 @@ export function createObservableStore<T extends object, D extends number = 0>(
       : [];
 
     const allPaths = [mainPath, ...normalizedKeys];
-    const wrap = (val: any) => cb(val);
+
+    const wrap = (val: any, unsub: () => void) => cb(val, unsub);
 
     const meta: SubscriptionMeta = {
       active: true,
       trackedPaths: new Set(allPaths),
       cacheKeys: normalizedKeys.length > 0 ? new Set(normalizedKeys) : undefined,
+      unsubscribe: () => {
+        allPaths.forEach((p) => {
+          pathSubscribers.get(p)?.delete(wrap);
+        });
+      },
     };
     (wrap as any).__meta = meta;
 
@@ -834,14 +860,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
     });
 
     if (immediate) {
-      wrap(getRaw(mainPath));
+      wrap(getRaw(mainPath), meta.unsubscribe);
     }
 
-    return () => {
-      allPaths.forEach((p) => {
-        pathSubscribers.get(p)?.delete(wrap);
-      });
-    };
+    return meta.unsubscribe;
   };
 
   store.invalidateAll = () => {
@@ -849,7 +871,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const meta: SubscriptionMeta = (sub as any).__meta;
       currentSubscriberMeta = meta;
       try {
-        sub(stateProxy);
+        sub(stateProxy, meta.unsubscribe);
       } finally {
         currentSubscriberMeta = null;
       }
@@ -857,7 +879,10 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     pathSubscribers.forEach((subs, path) => {
       const newVal = getRaw(path);
-      subs.forEach((cb) => cb(newVal));
+      subs.forEach((sub) => {
+        const meta: SubscriptionMeta = (sub as any).__meta;
+        sub(newVal, meta.unsubscribe);
+      });
     });
   };
 
@@ -930,3 +955,27 @@ export function createObservableStore<T extends object, D extends number = 0>(
     ? (ssrStore<T, D>(store, options.ssrStoreId) as SSRStore<T, D>)
     : (store as ObservableStore<T, D>);
 }
+
+const store = createObservableStore<{ counter: number; data: string }>({
+  counter: 0,
+  data: '',
+});
+
+let val;
+val = await store.asyncUpdate('counter', async (prev) => {
+  return prev + 1;
+})
+
+val = await store.asyncUpdate('counter', async (prev) => {
+  return prev + 1;
+})
+
+setTimeout(() => { 
+  store.asyncUpdate('counter', async (prev) => {
+    return prev + 1;
+  })
+
+  store.asyncUpdate('counter', async (prev) => {
+    return prev + 1;
+  })
+}, 100)

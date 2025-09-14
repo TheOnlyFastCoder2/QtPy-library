@@ -263,7 +263,7 @@ export type PathOrAccessor<T, D extends number = MaxDepth> = PathOrError<T, stri
  * Колбэк для подписки на изменения.
  * @template T - Тип данных, передаваемых в колбэк.
  */
-export type Subscriber<T> = (value: T) => void;
+export type Subscriber<T> = (value: T, unsubscribe: () => void) => void;
 
 /**
  * Функция для отписки.
@@ -317,6 +317,8 @@ export type SubscriptionMeta = {
   trackedPaths: Set<string>;
   /** Необязательный набор нормализованных cacheKeys для фильтрации. */
   cacheKeys?: Set<string>;
+  /** Необязательный набор нормализованных cacheKeys для фильтрации. */
+  unsubscribe: () => void;
 };
 
 export type MetaWeakMap = WeakMap<object, MetaData>;
@@ -405,7 +407,7 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
    */
   subscribeToPath<const P extends PathOrAccessor<T, D>>(
     path: P,
-    callback: (value: ExtractPathReturn<T, P, D>) => void,
+    callback: (value: ExtractPathReturn<T, P, D>, unsubscribe: () => void) => void,
     options?: {
       immediate?: boolean;
       cacheKeys?: readonly PathOrAccessor<T, D>[];
@@ -431,13 +433,16 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
       path: P,
       valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>,
       options?: { keepQuiet?: boolean }
-    ): void;
+    ): ExtractPathReturn<T, P, D>;
     /**
      * Обновить значение без уведомлений подписок.
      * @param path - Accessor-функция или путь к значению.
      * @param valueOrFn - Новое значение или функция обновления.
      */
-    quiet: <const P extends PathOrAccessor<T, D>>(path: P, valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>) => void;
+    quiet: <const P extends PathOrAccessor<T, D>>(
+      path: P,
+      valueOrFn: ValueOrFn<ExtractPathReturn<T, P, D>>
+    ) => ExtractPathReturn<T, P, D>;
   };
 
   /**
@@ -486,13 +491,13 @@ export interface ObservableStore<T, D extends number = MaxDepth> {
       path: P,
       asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
       options?: { abortPrevious?: boolean; keepQuiet?: boolean }
-    ): Promise<void>;
+    ): Promise<E>;
 
     quiet: <const P extends PathOrAccessor<T, D>, E = ExtractPathReturn<T, P, D>>(
       path: P,
       asyncUpdater: (current: E, signal: AbortSignal) => Promise<E>,
       options?: { abortPrevious?: boolean }
-    ) => Promise<void>;
+    ) => Promise<E>;
   };
 
   /**

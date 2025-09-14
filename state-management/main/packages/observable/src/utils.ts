@@ -340,7 +340,7 @@ export function ssrStore<T extends object, D extends number = 0>(
 
   const originalAsyncUpdate = ssrEnhancedStore.asyncUpdate;
 
-  function enqueueUpdate(fn: (...args: any[]) => Promise<void>) {
+  function enqueueUpdate(fn: (...args: any[]) => Promise<any>) {
     return (...args: any[]) => {
       const next = lastPromise.then(() => fn(...args));
       lastPromise = next.catch(() => {});
@@ -348,9 +348,9 @@ export function ssrStore<T extends object, D extends number = 0>(
     };
   }
 
-  //@ts-expect-error
-  ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate);
-  ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate.quiet);
+
+  ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate) as ObservableStore<T,D>['asyncUpdate'];
+  ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate.quiet) as ObservableStore<T, D>['asyncUpdate']['quiet'];
 
   ssrEnhancedStore.getIsSSR = () => {
     return getCheckIsSSR();

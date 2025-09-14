@@ -6,7 +6,6 @@ const getCheckIsSSR = () => {
   return typeof window === 'undefined';
 };
 
-
 export interface PopupProps {
   children: ReactNode;
   className?: string;
@@ -14,21 +13,22 @@ export interface PopupProps {
   domPortalById?: string;
   eventCloseBG?: PopupEvent;
 }
+export type PopupControl<T = any, TImp extends object = any> = {
+  setData: (val: T) => void;
+  [key: string]: any;
+} & TImp;
 
-export type PopupControl<T = any> = {
-  setData?: (val: T) => void;
+export type ImperativePopupProps<T, TImp extends object> = {
+  imperativeRef: React.RefObject<Partial<PopupControl<T, TImp>>>;
 };
 
-export type ImperativePopupProps<T> = {
-  imperativeRef: React.RefObject<Partial<PopupControl<T>>>;
-};
-
-export default function usePopup<T = any>(delay: number = 0) {
+export default function usePopup<T = any, TImp extends object = any>(delay: number = 0) {
   const refTimeId = useRef<NodeJS.Timeout | null>(null);
   const refContainer = useRef<HTMLDivElement | null>(null);
   const [isShowed, setIsShowed] = useState(false);
-  const refPortalData = useRef<PopupControl<T>>({});
-  const isSSR = getCheckIsSSR()
+
+  const refPortalData = useRef<Partial<PopupControl<T, TImp>>>({});
+  const isSSR = getCheckIsSSR();
   const toOpenPopup = () => setIsShowed(true);
 
   const toClosePopup = () => {
@@ -59,6 +59,9 @@ export default function usePopup<T = any>(delay: number = 0) {
       refPortalData.current?.setData?.(data);
     }, 10);
   };
+  const getImperativeData = () => {
+    return refPortalData.current;
+  };
 
   const toTogglePopup = () => {
     !isShowed ? toOpenPopup() : handleClose();
@@ -85,25 +88,26 @@ export default function usePopup<T = any>(delay: number = 0) {
     const clIsVisible = isShowed ? 'isVisible' : '';
     return isShowed && overlays
       ? createPortal(
-        <div
-          className={ `Popup ${className} ${clIsVisible}` }
-          ref={ refContainer }
-          { ...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined } }
-        >
-          <div className="Popup_container">{ children }</div>
-        </div>,
-        overlays
-      )
+          <div
+            className={`Popup ${className} ${clIsVisible}`}
+            ref={refContainer}
+            {...{ [eventCloseBG]: isOnCloseBG ? handleClickOverlay : undefined }}
+          >
+            <div className="Popup_container">{children}</div>
+          </div>,
+          overlays
+        )
       : null;
   };
 
   const PopupWithMemo = Object.assign(Popup, {
-    Memo: function <TProps extends ImperativePopupProps<T>, TExtensions extends object = {}>(
+    Memo: function <TProps extends ImperativePopupProps<T, TImp>, TExtensions extends object = {}>(
       config: {
         toOpenPopup?: () => void;
         toTogglePopup?: () => void;
         toClosePopup?: () => void;
         showWithData?: (data: T) => void;
+        getImperativeData?: () => Partial<PopupControl<T, TImp>>;
         isShowed?: boolean;
         Popup: React.FC<TProps>;
       } & TExtensions,
@@ -114,6 +118,7 @@ export default function usePopup<T = any>(delay: number = 0) {
           ...config,
           toOpenPopup: config.toOpenPopup,
           toTogglePopup: config.toTogglePopup,
+          getImperativeData: getImperativeData,
           isShowed: config.isShowed,
           Popup: (props: Omit<TProps, 'imperativeRef'>) =>
             config.Popup({ ...props, imperativeRef: refPortalData } as TProps),
@@ -130,6 +135,7 @@ export default function usePopup<T = any>(delay: number = 0) {
       toTogglePopup,
       showWithData,
       toClosePopup: handleClose,
+      getImperativeData,
       Popup: PopupWithMemo,
     };
   }, [isShowed]);
