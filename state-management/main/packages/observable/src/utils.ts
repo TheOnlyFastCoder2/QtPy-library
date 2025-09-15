@@ -34,17 +34,15 @@ function extractArgs(funcStr: string): string[] {
 export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: Accessor<T>): SafePaths<T, D> {
   const fnString = fn.toString().trim();
   const args = extractArgs(fnString);
-
+  // console.log(fnString, args)
   // Экранируем имена аргументов для использования в RegExp
-  const escapedArgs = args.map((arg) => arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
-
+  // const escapedArgs = args.map((arg) => arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  // console.log(escapedArgs)
   // Формируем регулярное выражение для разбора стрелочной функции
   const arrowMatch = fnString.match(
-    new RegExp(
-      `^\\s*(?:\\(\\s*${escapedArgs[0]}\\s*(?:,\\s*${escapedArgs[1]}\\s*)?\\s*\\)|${escapedArgs[0]})\\s*=>\\s*([\\s\\S]+)$`
-    )
+    /^\s*(?:\([^)]*\)|[a-zA-Z_$][\w$]*)\s*=>\s*([\s\S]+)$/
   );
-
+  // console.log(arrowMatch)
   if (!arrowMatch) {
     throw new Error('Invalid function format');
   }
