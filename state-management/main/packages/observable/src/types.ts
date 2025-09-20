@@ -331,11 +331,6 @@ export type MetaData = {
 
 export type PathLimitEntry<T, D extends number> = [PathOrAccessor<T, D>, number];
 
-/**
- * Достаём голый тип без обёртки
- */
-type UnwrapSignal<V> =
-  V extends { v: infer U } ? U : V;
 
 /**
  * Обёртка вокруг значения: теперь вместо `.value` будет `.v`
@@ -348,19 +343,19 @@ export type WithSignal<T> =
   T extends Primitive
   ? { v: T }
   : T extends readonly (infer U)[]
-  ? {
-    v: WithSignal<U>[];
-    push(...items: U[]): number;
-    pop(): U | undefined;
-    splice(start: number, deleteCount?: number, ...items: U[]): U[];
-    shift(): U | undefined;
-    unshift(...items: U[]): number;
-    sort(compareFn?: (a: U, b: U) => number): WithSignal<U>[];
-    reverse(): WithSignal<U>[];
-  }
-  : T extends object
-  ? { [K in keyof T]: WithSignal<T[K]> } & { v: T } // добавляем v для полного объекта
-  : { v: T };
+  ? WithSignalArray<U> & { v: T }
+  : { v: { [K in keyof T]: WithSignal<T[K]> } };
+
+type WithSignalArray<U> = {
+  v: WithSignal<U>[];
+  push(...items: U[]): number;
+  pop(): U | undefined;
+  splice(start: number, deleteCount?: number, ...items: U[]): U[];
+  shift(): U | undefined;
+  unshift(...items: U[]): number;
+  sort(compareFn?: (a: U, b: U) => number): WithSignalArray<U>;
+  reverse(): WithSignalArray<U>;
+};
 
 export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
   snapshot: () => Promise<T>;
@@ -380,7 +375,7 @@ export type SSRStore<T, D extends number = MaxDepth> = ObservableStore<T, D> & {
 export interface ObservableStore<T, D extends number = MaxDepth> {
   /** Прокси-объект состояния. */
   readonly $: WithSignal<T>;
-  unwrapSignals: <T>(signalObj: WithSignal<any>) => T
+  unwrapSignals: <T>(signalObj: WithSignal<T> | T) => T
 
 
   /**

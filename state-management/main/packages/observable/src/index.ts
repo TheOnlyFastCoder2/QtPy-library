@@ -9,7 +9,6 @@ import {
   MetaData,
   PathLimitEntry,
   SSRStore,
-  WithSignal,
 } from './types';
 import {
   normalizeCacheKey,
@@ -27,7 +26,6 @@ import {
   iterateObjectTree,
   isPathValid,
   getByPath,
-  wrapNode,
 } from './utils';
 
 class HistoryManager<T extends object, D extends number = 0> {
@@ -231,8 +229,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
 ): ObservableStore<T, D> | SSRStore<T, D> {
   let rawState: T = { ...initialState };
 
-  let currentSubscriberMeta: SubscriptionMeta | null = null;
-
   const batchingStack = new Map<string, { modeBatching: 'proxy' | 'user'; pending: Map<string, any> }>();
 
   const metaMap = new WeakMap<object, MetaData>();
@@ -272,72 +268,69 @@ export function createObservableStore<T extends object, D extends number = 0>(
     parentObj[lastKey as keyof typeof parentObj] = val;
   };
 
-  function createSignal<T>(store: ObservableStore<T>, path: string) {
-    const notify = () => store.update(path, getRaw(path));
-
-    const rawValue = getRaw(path);
-
-    // функция для установки метаданных на сигнал (а не на значение)
-    const setMeta = (signalObj: object) => {
-      if (metaMap) {
-        const snapshot = calculateSnapshotHash(getRaw(path));
-        // console.log(snapshot)
-        setMetaData(metaMap, signalObj, { _prevSignature: snapshot }, primitiveMetaMap, path);
+  function createSignal<T>(newValue: any, path: string, store: ObservableStore<T>) {
+    const setMeta = (signalObj: { v: any }, isMuted: boolean = false) => {
+      if (isMuted) {
+        setMetaData(metaMap, signalObj.v, { _prevSignature: 'MUTED_DATA' }, primitiveMetaMap, path);
+        return;
       }
+      const snapshot = calculateSnapshotHash(newValue);
+      setMetaData(metaMap, signalObj.v, { _prevSignature: snapshot }, primitiveMetaMap, path);
     };
 
-    if (Array.isArray(rawValue)) {
+    // === Array ===
+    if (Array.isArray(newValue)) {
+      const arr = newValue;
       const signalObj: any = {
         get v() {
-          return rawValue;
+          return arr;
         },
-        set v(newArr: any[]) {
-          rawValue.length = 0;
-          rawValue.push(...newArr);
-          notify();
+        set v(next: any[]) {
+          arr.length = 0;
+          arr.push(...next);
           setMeta(signalObj);
+          store.update(path, signalObj);
         },
-
         push(...items: any[]) {
-          rawValue.push(...items);
-          notify();
-          setMeta(signalObj);
+          arr.push(...items);
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
           return signalObj;
         },
         pop() {
-          rawValue.pop();
-          notify();
-          setMeta(signalObj);
-          return signalObj;
+          const r = arr.pop();
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
+          return r;
         },
         splice(start: number, deleteCount?: number, ...items: any[]) {
-          rawValue.splice(start, deleteCount, ...items);
-          notify();
-          setMeta(signalObj);
-          return signalObj;
+          const r = arr.splice(start, deleteCount ?? 0, ...items);
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
+          return r;
         },
         shift() {
-          rawValue.shift();
-          notify();
-          setMeta(signalObj);
-          return signalObj;
+          const r = arr.shift();
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
+          return r;
         },
         unshift(...items: any[]) {
-          rawValue.unshift(...items);
-          notify();
-          setMeta(signalObj);
-          return signalObj;
+          const r = arr.unshift(...items);
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
+          return r;
         },
         sort(compareFn?: (a: any, b: any) => number) {
-          rawValue.sort(compareFn);
-          notify();
-          setMeta(signalObj);
+          arr.sort(compareFn);
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
           return signalObj;
         },
         reverse() {
-          rawValue.reverse();
-          notify();
-          setMeta(signalObj);
+          arr.reverse();
+          setMeta(signalObj, true);
+          store.update(path, signalObj);
           return signalObj;
         },
       };
@@ -345,52 +338,36 @@ export function createObservableStore<T extends object, D extends number = 0>(
       return signalObj;
     }
 
-
-    if (typeof rawValue === 'object' && rawValue !== null) {
-      const signals: Record<string, any> = {};
+    // === Object ===
+    if (typeof newValue === 'object' && newValue !== null) {
+      const obj = newValue;
       const signalObj: any = {
         get v() {
-          return store.get(path);
+          return obj;
         },
-        set v(newVal: any) {
-          store.update(path, newVal);
+        set v(next: any) {
           setMeta(signalObj);
+          Object.assign(obj, next);
+          store.update(path, signalObj);
         },
       };
       setMeta(signalObj);
-      for (const key of Object.keys(rawValue)) {
-        signals[key] = createSignal(store, `${path}.${key}`);
-      }
-
-      return Object.assign(signalObj, signals);
+      return signalObj;
     }
 
+    // === Primitive ===
     const signalObj = {
       get v() {
-        return getRaw(path);
+        return newValue;
       },
-      set v(newValue) {
-        // console.log(23)
-        store.update(path, newValue);
+      set v(next: any) {
         setMeta(signalObj);
+        newValue = next;
+        store.update(path, next);
       },
     };
     setMeta(signalObj);
     return signalObj;
-  }
-
-  function createNestedSignals(store: any, obj: any) {
-    if (Array.isArray(obj)) {
-      return obj.map((_, i) => createSignal(store, `${i}`));
-    } else if (typeof obj === 'object' && obj !== null) {
-      const signals: Record<string, any> = {};
-      for (const key of Object.keys(obj)) {
-        signals[key] = createSignal(store, key);
-      }
-      return signals;
-    }
-    // для примитивов создаём сигнал
-    return createSignal(store, '');
   }
 
   function shouldSkipValueUpdate(
@@ -401,11 +378,14 @@ export function createObservableStore<T extends object, D extends number = 0>(
     isSetMetaData = true
   ) {
     let skipUpdate = false;
+    const oldValReal = isSignal(oldVal) ? oldVal?.v : oldVal;
+    const newValReal = isSignal(newVal) ? newVal?.v : newVal;
+    // console.log(oldVal?.v, oldVal)
+    // console.log(newVal?.v, newVal)
 
     const isSupported = withMetaSupport(newVal, () => {
-      const meta = getMetaData(metaMap, oldVal, primitiveMetaMap, path);
-      const prevSig = meta?._prevSignature;
-      const currentSig = calculateSnapshotHash(newVal);
+      const prevSig = getMetaData(metaMap, oldValReal, primitiveMetaMap, path)?._prevSignature;
+      const currentSig = calculateSnapshotHash(newValReal);
       // console.log(prevSig, currentSig);
 
       if (prevSig === currentSig) {
@@ -413,15 +393,17 @@ export function createObservableStore<T extends object, D extends number = 0>(
         return true;
       }
       if (currentSig && isSetMetaData) {
-        setMetaData(metaMap, newVal, { _prevSignature: currentSig }, primitiveMetaMap, path);
+        setMetaData(metaMap, newVal?.v, { _prevSignature: currentSig }, primitiveMetaMap, path);
       }
+
       return true;
     });
     // console.log(oldVal, newVal)
+
     return {
       newVal,
       oldVal,
-      bool: skipUpdate || (!isSupported && shallowEqual(oldVal, newVal)),
+      bool: skipUpdate || (!isSupported && shallowEqual(oldVal?.v ?? oldVal, newVal?.v ?? newVal)),
       isSupportedMetaData: isSupported,
       skipUpdate: skipUpdate,
     };
@@ -429,7 +411,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   const store: any = {};
   Object.defineProperty(store, '$', {
-    get: () => createNestedSignals(store, rawState),
+    value: createNestedSignalsFromPath(rawState),
     enumerable: true,
     configurable: true,
   });
@@ -510,12 +492,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
         ? meta.cacheKeys && meta.cacheKeys.has(normalizedKey)
         : !meta.cacheKeys || meta.cacheKeys.has(normalizedKey);
       if (condition) {
-        currentSubscriberMeta = meta;
         try {
           sub(store.$, meta.unsubscribe);
-        } finally {
-          currentSubscriberMeta = null;
-        }
+        } finally { }
       }
     });
 
@@ -559,7 +538,6 @@ export function createObservableStore<T extends object, D extends number = 0>(
   ) => {
     const oldVal = oldValue ?? getRaw(path);
     const isSkipUpdate = shouldSkipValueUpdate(oldVal, newVal, metaMap, path);
-
     if (isRecurse) notifyInvalidate(path, newVal, oldVal, isRecurse);
     if (!skipHistory && !isSkipUpdate.bool) historyMgr.push(path, newVal);
     if (isRecurse) return;
@@ -567,6 +545,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     setRaw(path, newVal);
     if (keepQuiet) return;
+
     notifyInvalidate(path, newVal, oldVal, isRecurse);
   };
 
@@ -576,6 +555,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
     const path = resolve(pathOrAccessor);
     let newVal = store.resolveValue(pathOrAccessor, valueOrFn, options?.isAddMetaData);
+
     if (currentBatch && !options?.keepQuiet) {
       currentBatch.pending.set(path, newVal);
     } else {
@@ -643,27 +623,48 @@ export function createObservableStore<T extends object, D extends number = 0>(
       const batch = batchingStack.get(keys[i])!;
       if (batch.pending.has(path)) return batch.pending.get(path);
     }
-    // здесь берём сигнал из store.$
+
     const segments = path.split('.');
-    let node: any = store.$;
+    let node: any = store.$.v;
     for (const seg of segments) {
       if (!node) break;
       node = node[seg];
     }
-    return node ?? store.get(path); // fallback на rawValue
+
+    return node ?? store.get(path);
+  }
+
+  function isSignal(obj: any): obj is { v: any } {
+    return obj && typeof obj === 'object' && 'v' in obj;
+  }
+
+  function createNestedSignalsFromPath(obj: any, path = ''): any {
+    const signalObj = createSignal(obj, path, store);
+
+    if (Array.isArray(obj)) {
+      signalObj.v.forEach((v, i) => {
+        signalObj.v[i] = createNestedSignalsFromPath(v, path ? `${path}.${i}` : `${i}`);
+      });
+    } else if (typeof obj === 'object' && obj !== null) {
+      for (const key in obj) {
+        signalObj.v[key] = createNestedSignalsFromPath(obj[key], path ? `${path}.${key}` : key);
+      }
+    }
+
+    setMetaData(metaMap, signalObj.v, { _prevSignature: calculateSnapshotHash(signalObj.v) }, primitiveMetaMap, path);
+
+    return signalObj;
   }
 
   store.resolveValue = (pathOrAccessor, valueOrFn, isAddMeta = false) => {
     const path = resolve(pathOrAccessor);
     const old = getPendingOrRaw(path);
+
     let newVal = typeof valueOrFn === 'function' ? valueOrFn(old) : valueOrFn;
 
-    if (isAddMeta) { 
-      withMetaSupport(newVal, () => {
-        newVal = createNestedSignals(store.$, newVal);
-      });
+    if (!isSignal(newVal)) {
+      newVal = createNestedSignalsFromPath(newVal);
     }
-
     return newVal;
   };
 
@@ -899,12 +900,9 @@ export function createObservableStore<T extends object, D extends number = 0>(
   store.invalidateAll = () => {
     subscribers.forEach((sub) => {
       const meta: SubscriptionMeta = (sub as any).__meta;
-      currentSubscriberMeta = meta;
       try {
         sub(store.$, meta.unsubscribe);
-      } finally {
-        currentSubscriberMeta = null;
-      }
+      } finally {}
     });
 
     pathSubscribers.forEach((subs, path) => {
@@ -915,40 +913,27 @@ export function createObservableStore<T extends object, D extends number = 0>(
       });
     });
   };
-  store.unwrapSignals = <T>(signalObj: WithSignal<T>): T => {
-    const result: any = Array.isArray(signalObj) ? [] : {};
-    let primitive;
+  store.unwrapSignals = <T>(signalObj: any): T => {
+    if (!signalObj) return signalObj;
 
-
-    for (const { path, node } of iterateObjectTree(signalObj)) {
-      if (!node?.v) continue;
-      if (!path) {
-        if (typeof node.v !== 'object') {
-          primitive = node.v;
-        }
-        continue;
-      }
-
-      const keys = path.split('.');
-      let target = result;
-
-      // проходим по ключам пути, кроме последнего
-      for (let i = 0; i < keys.length - 1; i++) {
-        const key = keys[i];
-        if (!(key in target)) {
-          // создаём объект или массив в зависимости от следующего ключа
-          target[key] = /^\d+$/.test(keys[i + 1]) ? [] : {};
-        }
-        target = target[key];
-      }
-
-      // присваиваем значение последнему ключу
-      const lastKey = keys[keys.length - 1];
-      target[lastKey] = node.v;
+    if (isSignal(signalObj)) {
+      return store.unwrapSignals(signalObj.v);
     }
 
-    return primitive ?? result.v as T;
+    if (Array.isArray(signalObj)) {
+      return signalObj.map((item) => store.unwrapSignals(item)) as any;
+    }
+
+    if (typeof signalObj === 'object') {
+      const result: any = {};
+      for (const key in signalObj) {
+        result[key] = store.unwrapSignals(signalObj[key]);
+      }
+      return result;
+    }
+    return signalObj;
   };
+
   store.invalidate = (keyProxy) => {
     const key = resolve(keyProxy);
     notifyInvalidate(key);
@@ -993,7 +978,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
     debounceTimers.forEach((timer) => clearTimeout(timer));
     debounceTimers.clear();
     rawState = { ...newState };
-    store.$ = createNestedSignals({} as any, rawState);
+    store.$ = createNestedSignalsFromPath(rawState);
     if (!options?.keepQuiet) {
       store.invalidateAll();
     }
@@ -1017,7 +1002,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
   return options.ssrStoreId
     ? (ssrStore<T, D>(store, options.ssrStoreId) as SSRStore<T, D>)
     : (store as ObservableStore<T, D>);
-}
+}q
 
 const store = createObservableStore({
   counter: 1,
@@ -1025,22 +1010,14 @@ const store = createObservableStore({
 });
 
 store.subscribeToPath(
-  ($) => $.items,
+  ($) => $.counter,
   (val) => {
-    console.log(val, 'sd');
+    console.log(val.v, 'sd');
   }
 );
 
-store.update(
-  ($) => $.items,
-  (prev) => {
-    // console.log(prev.reverse())
-    return prev.reverse();
-  }
-);
-// store.$.items.reverse()
-
-// store.batch(() => {
-//   store.$.items.v[0].v = { lol: 32 }
-//   store.$.items.v[0].v = { lol: 9999 }
+// store.batch(() => { 
+//   store.$.v.items.reverse()
+//   store.$.v.items.push(2323)
+//   store.$.v.counter.v = 32;
 // })

@@ -44,7 +44,7 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
       `^\\s*(?:\\(\\s*${escapedArgs[0]}\\s*(?:,\\s*${escapedArgs[1]}\\s*)?\\s*\\)|${escapedArgs[0]})\\s*=>\\s*([\\s\\S]+)$`
     )
   );
-
+ 
   if (!arrowMatch) {
     throw new Error('Invalid function format');
   }
@@ -139,7 +139,7 @@ export function getStringOfObject<T, D extends number = MaxDepth>(store: T, fn: 
 
   const noDoubleDots = replacedPath.replace(/\.\./g, '.');
   const normalized = noDoubleDots.startsWith('.') ? noDoubleDots.slice(1) : noDoubleDots;
-
+ 
   return normalized as SafePaths<T, D>;
 }
 /**
@@ -424,83 +424,6 @@ export function getByPath(obj: any, path: string): any {
   return current;
 }
 
-const MUTATING_METHODS = {
-  array: ['push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse', 'fill', 'copyWithin'],
-  object: ['assign', 'defineProperty', 'defineProperties'],
-};
-
-export class WrapArray extends Array {
-  constructor(...args: any[]) {
-    super(...args);
-  }
-}
-
-//wrapArrayMethods
-export function wrapArrayMethods(node: any, metaMap: WeakMap<object, MetaData>) {
-  if (!Array.isArray(node) || getMetaData(metaMap, node)?._isWrapped) return node;
-  MUTATING_METHODS.array.forEach((method) => {
-    WrapArray.prototype[method] = function (...args: any[]) {
-        withMetaSupport(this, () => {
-          setMetaData(metaMap, this, {
-            _prevSignature: 'CHANGED_METHOD',
-            _mutated: true,
-            _isWrapped: true,
-          });
-        });
-        return Array.prototype[method].apply(this, args);
-      };
-  });
-
-  Object.setPrototypeOf(node, WrapArray.prototype);
-  setMetaData(metaMap, node, { _isWrapped: true });
-
-  return node as WrapArray;
-}
-
-export class WrapObject extends Object {
-  constructor(...args: any[]) {
-    super(...args);
-  }
-}
-
-export function wrapObjectMethods(node: object, metaMap: WeakMap<object, MetaData>) {
-  if (typeof node !== 'object' || node === null || getMetaData(metaMap, node)?._isWrapped) return node;
-
-  MUTATING_METHODS.object.forEach((method) => {
-    if (!(method in WrapObject.prototype)) {
-      WrapObject.prototype[method] = function (...args: any[]) {
-        withMetaSupport(this, () => {
-          setMetaData(metaMap, this, {
-            _prevSignature: 'CHANGED_METHOD',
-            _mutated: true,
-            _isWrapped: true,
-          });
-        });
-
-        return Object[method](this, ...args);
-      };
-    }
-  });
-
-  Object.setPrototypeOf(node, WrapObject.prototype);
-  setMetaData(metaMap, node, { _isWrapped: true });
-  return node as WrapArray;
-}
-
-export function wrapNode(node: any, parent: any, key: string | number | null, metaMap: WeakMap<object, MetaData>): any {
-  let wrapped = node;
-
-  if (Array.isArray(node)) {
-    wrapped = wrapArrayMethods(node, metaMap);
-  } else if (node && typeof node === 'object') {
-    wrapped = wrapObjectMethods(node, metaMap);
-  }
-  if (wrapped !== node && parent && key != null) {
-    parent[key] = wrapped;
-  }
-
-  return wrapped;
-}
 
 export function* iterateObjectTree(
   obj: any,
