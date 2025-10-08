@@ -273,7 +273,7 @@ export function withMetaSupport<T>(target: T, cb: () => void | any): any {
   return cb?.();
 }
 //prettier-ignore
-export function setMetaData<T extends object>(metaMap: MetaWeakMap|undefined, target: T, meta: MetaData, primitiveMetaMap?: Map<string, MetaData>, path?: string
+export function setMetaData<T extends object>(metaMap: MetaWeakMap | undefined, target: T, meta: MetaData, primitiveMetaMap?: Map<string, MetaData>, path?: string
 ): void {
   if (typeof target === 'object' && target !== null && metaMap) {
     withMetaSupport(target, () => metaMap.set(target, meta));
@@ -341,13 +341,13 @@ export function ssrStore<T extends object, D extends number = 0>(
   function enqueueUpdate(fn: (...args: any[]) => Promise<any>) {
     return (...args: any[]) => {
       const next = lastPromise.then(() => fn(...args));
-      lastPromise = next.catch(() => {});
+      lastPromise = next.catch(() => { });
       return next;
     };
   }
 
 
-  ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate) as ObservableStore<T,D>['asyncUpdate'];
+  ssrEnhancedStore.updateSSR = enqueueUpdate(originalAsyncUpdate) as ObservableStore<T, D>['asyncUpdate'];
   ssrEnhancedStore.updateSSR.quiet = enqueueUpdate(originalAsyncUpdate.quiet) as ObservableStore<T, D>['asyncUpdate']['quiet'];
 
   ssrEnhancedStore.getIsSSR = () => {
@@ -437,15 +437,15 @@ export function wrapArrayMethods(node: any, metaMap: WeakMap<object, MetaData>) 
   if (!Array.isArray(node) || getMetaData(metaMap, node)?._isWrapped) return node;
   MUTATING_METHODS.array.forEach((method) => {
     WrapArray.prototype[method] = function (...args: any[]) {
-        withMetaSupport(this, () => {
-          setMetaData(metaMap, this, {
-            _prevSignature: 'CHANGED_METHOD',
-            _mutated: true,
-            _isWrapped: true,
-          });
+      withMetaSupport(this, () => {
+        setMetaData(metaMap, this, {
+          _prevSignature: 'CHANGED_METHOD',
+          _mutated: true,
+          _isWrapped: true,
         });
-        return Array.prototype[method].apply(this, args);
-      };
+      });
+      return Array.prototype[method].apply(this, args);
+    };
   });
 
   Object.setPrototypeOf(node, WrapArray.prototype);
@@ -489,7 +489,16 @@ export function wrapNode(node: any, parent: any, key: string | number | null, me
 
   if (Array.isArray(node)) {
     wrapped = wrapArrayMethods(node, metaMap);
-  } else if (node && typeof node === 'object') {
+  } else if (
+    node &&
+    typeof node === 'object' &&
+    !(node instanceof RegExp) &&
+    !(node instanceof Date) &&
+    !(node instanceof Map) &&
+    !(node instanceof Set) &&
+    !(node instanceof WeakMap) &&
+    !(node instanceof WeakSet)
+  ) {
     wrapped = wrapObjectMethods(node, metaMap);
   }
   if (wrapped !== node && parent && key != null) {

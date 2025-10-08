@@ -236,6 +236,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   const metaMap = new WeakMap<object, MetaData>();
   const primitiveMetaMap = new Map<string, MetaData>();
+  const proxyCache = new WeakMap<object, any>();
 
   const subscribers = new Set<Subscriber<T>>();
   const pathSubscribers = new Map<string, Set<Subscriber<T>>>();
@@ -275,6 +276,7 @@ export function createObservableStore<T extends object, D extends number = 0>(
 
   function createReactiveProxy<T extends object>(target: T, parentFullPath: string = ''): T {
     if (typeof target !== 'object' || target === null) return target;
+    if (proxyCache.has(target)) return proxyCache.get(target);
 
     for (const { node, path, parent, key } of iterateObjectTree(target)) {
       withMetaSupport(node, () => {
